@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+*.pkl
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Data
+fine_tuning/data/*.jsonl
+evals/results/*.json
+*.gguf
+
+# Docker
+postgres_data/
+redis_data/
+.env.local 

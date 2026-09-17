@@ -1,0 +1,61 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🐳 Docker: Start All Services",
+      "type": "shell",
+      "command": "docker compose up -d",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "🐳 Docker: Stop All Services",
+      "type": "shell",
+      "command": "docker compose down",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "🐳 Docker: View Logs (API)",
+      "type": "shell",
+      "command": "docker compose logs -f api",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "🗄 DB: Run Migrations",
+      "type": "shell",
+      "command": "cd backend && alembic upgrade head",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "🌱 RAG: Seed Knowledge Base",
+      "type": "shell",
+      "command": "cd backend && python -m rag.seed",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "🧪 Run All Tests",
+      "type": "shell",
+      "command": "cd backend && pytest tests/ -v",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "📊 Run RAG Evaluations",
+      "type": "shell",
+      "command": "cd backend && python -m evals.rag_evals",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "⚛️  Frontend: Install & Start",
+      "type": "shell",
+      "command": "cd frontend && npm install && npm run dev",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "📦 Export Fine-tuning Dataset",
+      "type": "shell",
+      "command": "cd backend && python -m fine_tuning.generate_dataset",
+      "presentation": { "reveal": "always", "panel": "new" }
+    }
+  ]
+}

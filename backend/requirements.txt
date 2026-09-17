@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────
+#  NEXUS AI Backend  ·  requirements.txt
+# ─────────────────────────────────────────────────────────────
+
+# ── Web Framework ─────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.17       # form/file uploads
+httpx==0.28.0                  # async HTTP client
+
+# ── Database (async) ─────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0                # async postgres driver
+alembic==1.14.0                # migrations
+greenlet==3.1.1                # required by SQLAlchemy async
+
+# ── Validation & Settings ────────────────────────────────────
+pydantic==2.10.3
+pydantic-settings==2.6.1       # .env loading
+email-validator==2.2.0
+
+# ── Auth & Security ───────────────────────────────────────────
+python-jose[cryptography]==3.3.0    # JWT encode/decode
+passlib[bcrypt]==1.7.4              # password hashing
+bcrypt==4.2.1                      # compatible with passlib 1.7.4
+cryptography==43.0.3
+PyJWT==2.10.0
+
+# ── Task Queue ────────────────────────────────────────────────
+celery[redis]==5.4.0
+redis==5.2.0
+kombu==5.4.2
+
+# ── Observability ─────────────────────────────────────────────
+loguru==0.7.2
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-sqlalchemy==0.50b0
+prometheus-client==0.21.0
+
+# ── Utilities ─────────────────────────────────────────────────
+python-dotenv==1.0.1
+tenacity==8.5.0                # retry logic
+slowapi==0.1.9                 # rate limiting
+starlette-exporter==0.17.1
+
+# ── Testing ───────────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.0                  # test client
+factory-boy==3.3.1
+faker==33.1.0
+
+# ── Phase 2: RAG Pipeline ─────────────────────────────────────
+#langchain==0.3.9
+langchain-openai==0.2.14
+#langchain-community==0.3.9
+langchain-ollama==0.2.3
+langchain-text-splitters==0.3.4
+#langchain-core==0.3.33
+qdrant-client==1.12.1
+rank-bm25==0.2.2
+sentence-transformers==3.3.1      # cross-encoder reranker
+unstructured[md]==0.16.11         # markdown loader
+pypdf==5.1.0                      # PDF loader
+pydantic-settings==2.6.1
+
+# ── Phase 3 onwards (pre-install) ─────────────────────────────
+# langgraph==0.2.56
+# langsmith==0.2.3
+
+# ── Phase 3: Agents + Orchestration ──────────────────────────
+langgraph==0.2.56
+langsmith>=0.1.17,<0.2.0
+duckduckgo-search==7.1.0
+langgraph-checkpoint-redis
+
+# ── Phase 5: Tracing + Evals + Security ──────────────────────
+ragas==0.2.6
+#deepeval==1.4.3
+datasets==3.0.1
+presidio-analyzer==2.2.354
+presidio-anonymizer==2.2.354
+spacy==3.7.6                       # required by presidio
+prometheus-client==0.21.0
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0

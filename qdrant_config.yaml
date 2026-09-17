@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────
+#  NEXUS AI  ·  Qdrant Configuration
+# ─────────────────────────────────────────────────────────────
+
+storage:
+  # Storage path inside container (mapped to Docker volume)
+  storage_path: /qdrant/storage
+
+service:
+  host: 0.0.0.0
+  http_port: 6333
+  grpc_port: 6334
+  # Enable CORS for local dev
+  cors_allow_origin: "*"
+
+# Optimiser settings
+optimizers:
+  # Build HNSW index after this many vectors
+  indexing_threshold: 10000
+  # Flush to disk every N seconds
+  flush_interval_sec: 5
+
+# Collection defaults
+collection:
+  # Default HNSW parameters — tune for recall vs speed
+  hnsw_config:
+    m: 16              # graph connectivity
+    ef_construct: 100  # index-time candidates
+    full_scan_threshold: 10000
