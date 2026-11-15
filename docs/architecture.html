@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NEXUS AI System Architecture</title>
+<style>
+  @page { size: A4; margin: 11mm 13mm 11mm 13mm; }
+  :root {
+    --ink: #1f2933; --muted: #5b6672; --line: #d4d9df; --soft: #f4f6f8;
+    --client: #2563a8; --client-bg: #e8f0fa;
+    --api: #4f46b5; --api-bg: #ecebfb;
+    --async: #b7791f; --async-bg: #fdf3e1;
+    --ai: #7c3aad; --ai-bg: #f3eafa;
+    --data: #2f855a; --data-bg: #e6f4ec;
+    --model: #c05621; --model-bg: #fdece2;
+    --ident: #23797a; --ident-bg: #e3f3f3;
+    --ops: #5b6672; --ops-bg: #eef0f2;
+    --warn: #b42318; --warn-bg: #fdecea;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: #fff; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: var(--ink); font-size: 9pt; line-height: 1.38; margin: 0; }
+  h1 { font-size: 21pt; margin: 0 0 3pt; letter-spacing: -0.3pt; }
+  h2 { font-size: 13.5pt; margin: 0 0 5pt; padding-bottom: 3pt; border-bottom: 1.5px solid var(--ink); }
+  h3 { font-size: 10.4pt; margin: 8pt 0 3pt; }
+  p { margin: 0 0 5pt; }
+  svg.tall { max-height: 112mm; }
+  svg.mid { max-height: 74mm; }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+  .sub { color: var(--muted); font-size: 10.5pt; margin-bottom: 10pt; }
+  .meta { color: var(--muted); font-size: 8.5pt; }
+  table { width: 100%; border-collapse: collapse; margin: 3pt 0 6pt; font-size: 8.2pt; line-height: 1.32; }
+  th, td { text-align: left; vertical-align: top; padding: 2.6pt 5pt; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 8.4pt; background: var(--soft); padding: 0 2pt; border-radius: 2px; }
+  .fig { border: 1px solid var(--line); border-radius: 6px; padding: 6pt; margin: 4pt 0 3pt; break-inside: avoid; }
+  .cap { font-size: 8pt; color: var(--muted); margin: 2pt 0 6pt; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: "Segoe UI", Arial, sans-serif; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 7pt 8pt; break-inside: avoid; }
+  .card h4 { margin: 0 0 3pt; font-size: 9.6pt; }
+  .card ul { margin: 0; padding-left: 12pt; }
+  .tag { display: inline-block; font-size: 7.6pt; font-weight: 600; padding: 0 5pt; border-radius: 8px; line-height: 14pt; }
+  .t-ok { background: var(--data-bg); color: var(--data); }
+  .t-part { background: var(--async-bg); color: var(--async); }
+  .t-no { background: var(--warn-bg); color: var(--warn); }
+  .flow { display: flex; align-items: stretch; gap: 0; margin: 4pt 0 8pt; }
+  .step { flex: 1; border: 1px solid; border-radius: 5px; padding: 5pt 6pt; font-size: 8pt; line-height: 1.35; }
+  .step b { display: block; font-size: 8.6pt; margin-bottom: 2pt; }
+  .arrow { flex: 0 0 14pt; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11pt; }
+  .c-client { border-color: var(--client); background: var(--client-bg); }
+  .c-api { border-color: var(--api); background: var(--api-bg); }
+  .c-ai { border-color: var(--ai); background: var(--ai-bg); }
+  .c-data { border-color: var(--data); background: var(--data-bg); }
+  .c-model { border-color: var(--model); background: var(--model-bg); }
+  .c-ops { border-color: var(--ops); background: var(--ops-bg); }
+  .c-async { border-color: var(--async); background: var(--async-bg); }
+  .kv { display: grid; grid-template-columns: 22% 78%; font-size: 8.4pt; border-top: 1px solid var(--line); }
+  .kv div { padding: 2.4pt 5pt; border-bottom: 1px solid var(--line); }
+  .kv div:nth-child(odd) { font-weight: 600; background: var(--soft); }
+  .note { border-left: 3px solid var(--async); background: var(--async-bg); padding: 5pt 8pt; font-size: 8.6pt; margin: 6pt 0; }
+  .sev { font-weight: 700; white-space: nowrap; }
+  .sev-h { color: var(--warn); } .sev-m { color: var(--async); } .sev-l { color: var(--muted); }
+  .toc { columns: 2; font-size: 9.4pt; padding-left: 14pt; margin: 4pt 0 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4pt 12pt; font-size: 7.8pt; color: var(--muted); margin-top: 4pt; }
+  .legend span::before { content: ""; display: inline-block; width: 9pt; height: 9pt; border-radius: 2px; margin-right: 3pt; vertical-align: -1pt; border: 1px solid; }
+  .l-client::before { background: var(--client-bg); border-color: var(--client) !important; }
+  .l-api::before { background: var(--api-bg); border-color: var(--api) !important; }
+  .l-async::before { background: var(--async-bg); border-color: var(--async) !important; }
+  .l-ai::before { background: var(--ai-bg); border-color: var(--ai) !important; }
+  .l-data::before { background: var(--data-bg); border-color: var(--data) !important; }
+  .l-model::before { background: var(--model-bg); border-color: var(--model) !important; }
+  .l-ident::before { background: var(--ident-bg); border-color: var(--ident) !important; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ PAGE 1 · OVERVIEW ═══════════════ -->
+<section class="page">
+  <div class="meta">NEXUS AI · Architecture document · branch docs/readme-and-reranker · 15 Nov 2026</div>
+  <h1 style="margin-top:6pt">NEXUS AI System Architecture</h1>
+  <div class="sub">Multi-agent IT service intelligence platform: FastAPI, LangGraph agents, hybrid RAG, Celery, React</div>
+
+  <h2>1. Summary</h2>
+  <p>NEXUS AI is an IT service desk in which LLM agents work support tickets. A user files a ticket in the React app. An agent or admin
+  starts a run, and a LangGraph supervisor, executing inside a Celery worker, passes the ticket through a <b>Triage</b> agent, an optional
+  <b>Security</b> agent, a <b>Diagnosis</b> agent and a <b>Knowledge</b> agent. Any of them can pause the run for <b>human review</b>.</p>
+  <p>The agents ground their answers in a knowledge base of runbooks and resolved tickets, searched with hybrid retrieval: dense vectors in
+  Qdrant plus BM25 keywords, merged with reciprocal rank fusion and reranked by a cross-encoder. When a diagnosis is confident, the
+  Knowledge agent writes it up as a new runbook and adds it to the knowledge base, so the system improves as tickets are resolved.</p>
+  <p>Everything runs locally under Docker Compose. The LLM and, by default, the embeddings come from the OpenAI API. Ollama is available
+  for local embeddings and hosts an optional fine-tuned model.</p>
+
+  <h3>Key facts</h3>
+  <div class="kv">
+    <div>Deployment</div><div>Docker Compose, 8 containers on network <code>nexus-net</code>; React dev server runs on the host</div>
+    <div>Backend</div><div>Python 3.12 · FastAPI · async SQLAlchemy + asyncpg · Pydantic v2 · Alembic</div>
+    <div>Orchestration</div><div>LangGraph <code>StateGraph</code> with Redis checkpointing (<code>AsyncRedisSaver</code>), human-in-the-loop via <code>interrupt()</code></div>
+    <div>Async work</div><div>Celery on Redis; queues <code>default</code>, <code>agents</code>, <code>rag</code>, <code>evals</code>, <code>fine_tuning</code>; Celery Beat for schedules</div>
+    <div>LLM</div><div>OpenAI chat via <code>langchain_openai</code>; config default <code>gpt-4o</code>, local <code>.env</code> uses <code>gpt-4o-mini</code>; temperature 0</div>
+    <div>Retrieval</div><div>Qdrant 1.12 (dense) + rank_bm25 (sparse) → RRF (k=60) → <code>ms-marco-MiniLM-L-6-v2</code> cross-encoder</div>
+    <div>Embeddings</div><div>OpenAI <code>text-embedding-3-small</code> (1536-d, default) or Ollama <code>nomic-embed-text</code> (768-d)</div>
+    <div>Data</div><div>PostgreSQL 16: users, tickets, ticket_status_history, audit_logs (Keycloak shares the database)</div>
+    <div>Identity</div><div>Keycloak 24 OIDC with JWKS verification and user auto-provisioning; local HS256 JWT as dev fallback</div>
+    <div>Frontend</div><div>React + Vite + Tailwind, React Query, Zustand; port 5173, proxies <code>/api</code> to port 8000</div>
+    <div>Quality</div><div>pytest, ruff, RAGAS + triage-accuracy evals with CI thresholds (GitHub Actions)</div>
+  </div>
+
+  <h3>Implementation status</h3>
+  <table>
+    <tr><th style="width:26%">Phase</th><th style="width:14%">Status</th><th>Notes</th></tr>
+    <tr><td>1 · Foundation (API, auth, DB)</td><td><span class="tag t-ok">Done</span></td><td>RBAC, validated status transitions, status history, audit log</td></tr>
+    <tr><td>2 · RAG pipeline</td><td><span class="tag t-ok">Done</span></td><td>Ingestion, hybrid search, reranking, streaming answers</td></tr>
+    <tr><td>3 · Agents + LangGraph</td><td><span class="tag t-ok">Done</span></td><td>4 agents, human review with resume, iteration guard; outcome saved to the ticket on every run</td></tr>
+    <tr><td>4 · React dashboard</td><td><span class="tag t-ok">Done</span></td><td>Dashboard, tickets, ticket detail, AI query, agent monitor</td></tr>
+    <tr><td>5 · Tracing, evals, security</td><td><span class="tag t-part">Partial</span></td><td>Prompt-injection guard active; evals score below thresholds; Presidio and Prometheus code not wired in</td></tr>
+    <tr><td>6 · Fine-tuning (QLoRA)</td><td><span class="tag t-part">Partial</span></td><td>Dataset export, notebook, Ollama deploy; model not used by agents</td></tr>
+    <tr><td>Analytics agent</td><td><span class="tag t-no">Not started</span></td><td>Enum value and commented-out router only</td></tr>
+  </table>
+
+  <h3>Contents</h3>
+  <ol class="toc">
+    <li>Summary</li><li>System context</li><li>Ticket lifecycle, end to end</li><li>Agent orchestration</li>
+    <li>RAG pipeline</li><li>Data model</li><li>Security and access control</li><li>Background processing</li>
+    <li>Deployment, observability and ML ops</li><li>Known gaps and recommendations</li>
+  </ol>
+</section>
+
+<!-- ═══════════════ PAGE 2 · SYSTEM CONTEXT ═══════════════ -->
+<section class="page">
+  <h2>2. System context</h2>
+  <p>The API is the only entry point for the browser. Long-running agent work is pushed onto Celery so HTTP requests return immediately.
+  The RAG pipeline is an in-process Python library, not a separate service; both the <code>/rag</code> endpoints and the agent tools import it.</p>
+
+  <div class="fig">
+  <svg class="tall" viewBox="0 0 700 600" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ar"viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6672"/></marker>
+    </defs>
+    <g font-size="10.5" fill="#1f2933">
+    <!-- Row 1 -->
+    <rect x="10" y="10" width="440" height="62" rx="6" fill="#e8f0fa" stroke="#2563a8"/>
+    <text x="22" y="30" font-weight="700" font-size="12" fill="#2563a8">React single-page app</text>
+    <text x="22" y="46">Vite · localhost:5173 · runs on the host, outside Docker</text>
+    <text x="22" y="61" fill="#5b6672" font-size="9.5">Login · Dashboard · Tickets · Ticket detail · AI Query · Agent Monitor</text>
+
+    <rect x="490" y="10" width="190" height="62" rx="6" fill="#e3f3f3" stroke="#23797a"/>
+    <text x="502" y="30" font-weight="700" font-size="12" fill="#23797a">Keycloak 24</text>
+    <text x="502" y="46">:8080 · OIDC realm nexus</text>
+    <text x="502" y="61" fill="#5b6672" font-size="9.5">JWTs verified via JWKS</text>
+
+    <!-- FastAPI -->
+    <rect x="10" y="120" width="200" height="260" rx="6" fill="#ecebfb" stroke="#4f46b5"/>
+    <text x="22" y="140" font-weight="700" font-size="12" fill="#4f46b5">FastAPI backend</text>
+    <text x="22" y="155" fill="#5b6672" font-size="9.5">:8000 · /api/v1 · uvicorn</text>
+    <text x="22" y="178" font-weight="600">Middleware</text>
+    <text x="22" y="192" font-size="9.5">CORS · SlowAPI rate limit</text>
+    <text x="22" y="205" font-size="9.5">X-Request-ID + timing logs</text>
+    <text x="22" y="226" font-weight="600">Routers</text>
+    <text x="22" y="240" font-size="9.5">/health  /auth  /users</text>
+    <text x="22" y="253" font-size="9.5">/tickets  status transitions</text>
+    <text x="22" y="266" font-size="9.5">/rag  ingest · search · query</text>
+    <text x="22" y="279" font-size="9.5">/agents  run · status · resume · trace</text>
+    <text x="22" y="298" font-weight="600">Auth</text>
+    <text x="22" y="311" font-size="9.5">Bearer JWT · RBAC (4 roles)</text>
+    <rect x="16" y="318" width="188" height="30" rx="4" fill="#fdecea" stroke="#b42318"/>
+    <text x="22" y="330" font-weight="600" fill="#b42318">Input guard</text>
+    <text x="22" y="343" font-size="9.5">injection check → 422 if flagged</text>
+    <text x="22" y="361" font-weight="600">Audit</text>
+    <text x="22" y="374" font-size="9.5">status history · audit_logs</text>
+
+    <!-- Redis / Celery -->
+    <rect x="250" y="120" width="180" height="62" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="262" y="140" font-weight="700" font-size="12" fill="#2f855a">Redis</text>
+    <text x="262" y="156" font-size="9.5">redis-stack-server · :6379</text>
+    <text x="262" y="170" font-size="9.5">db0 graph state · db1-2 Celery</text>
+
+    <rect x="470" y="120" width="210" height="62" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
+    <text x="482" y="140" font-weight="700" font-size="12" fill="#b7791f">Celery worker + beat</text>
+    <text x="482" y="156" font-size="9.5">concurrency 4 · acks_late · prefetch 1</text>
+    <text x="482" y="170" font-size="9.5">queues default · agents · rag · evals</text>
+
+    <!-- Supervisor -->
+    <rect x="250" y="220" width="420" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+    <text x="262" y="240" font-weight="700" font-size="12" fill="#7c3aad">LangGraph supervisor</text>
+    <text x="410" y="240" fill="#5b6672" font-size="9.5">runs inside the Celery worker</text>
+    <text x="262" y="256" font-size="9.5">injection pre-check → Triage → Security? → Diagnosis → Knowledge · HITL · guard</text>
+    <text x="262" y="270" font-size="9.5">Tools: rag_search · web_search · cve_lookup · check_sla_status · update_ticket · runbook</text>
+
+    <!-- RAG -->
+    <rect x="250" y="320" width="420" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+    <text x="262" y="340" font-weight="700" font-size="12" fill="#7c3aad">RAG pipeline</text>
+    <text x="350" y="340" fill="#5b6672" font-size="9.5">in-process library (rag/)</text>
+    <text x="262" y="356" font-size="9.5">Query: embed → dense 10 + BM25 10 → RRF → 20 candidates → rerank → top 3 → LLM</text>
+    <text x="262" y="370" font-size="9.5">Ingest: load → chunk 512/64 → embed → Qdrant upsert + BM25 update</text>
+
+    <!-- Data row -->
+    <rect x="10" y="430" width="200" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="22" y="450" font-weight="700" font-size="12" fill="#2f855a">PostgreSQL 16</text>
+    <text x="22" y="466" font-size="9.5">host port 15432 · db nexusai</text>
+    <text x="22" y="480" font-size="9.5">users · tickets · status history</text>
+    <text x="22" y="493" font-size="9.5">audit_logs · Keycloak tables</text>
+
+    <rect x="250" y="430" width="120" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="262" y="450" font-weight="700" font-size="12" fill="#2f855a">BM25 index</text>
+    <text x="262" y="466" font-size="9.5">rank_bm25, on disk</text>
+    <text x="262" y="480" font-size="9.5">loaded at API start</text>
+    <text x="262" y="493" font-size="9.5">rebuilt weekly</text>
+
+    <rect x="385" y="430" width="120" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="397" y="450" font-weight="700" font-size="12" fill="#2f855a">Qdrant 1.12</text>
+    <text x="397" y="466" font-size="9.5">:6333 REST · :6334</text>
+    <text x="397" y="480" font-size="9.5">nexus_knowledge</text>
+    <text x="397" y="493" font-size="9.5">payload: tenant, type</text>
+
+    <rect x="520" y="430" width="150" height="58" rx="6" fill="#fdece2" stroke="#c05621"/>
+    <text x="532" y="450" font-weight="700" font-size="12" fill="#c05621">OpenAI API</text>
+    <text x="532" y="466" font-size="9.5">chat: gpt-4o / gpt-4o-mini</text>
+    <text x="532" y="480" font-size="9.5">text-embedding-3-small</text>
+
+    <rect x="520" y="505" width="150" height="58" rx="6" fill="#fdece2" stroke="#c05621" stroke-dasharray="4 3"/>
+    <text x="532" y="525" font-weight="700" font-size="12" fill="#c05621">Ollama</text>
+    <text x="532" y="541" font-size="9.5">:11434 · nomic-embed-text</text>
+    <text x="532" y="555" font-size="9.5">nexus-it (fine-tuned, unused)</text>
+    </g>
+
+    <!-- arrows -->
+    <g stroke="#5b6672" stroke-width="1.2" fill="none" marker-end="url(#ar)">
+      <path d="M110,72 V118"/>
+      <path d="M450,41 H488" stroke-dasharray="4 3"/>
+      <path d="M210,151 H248"/>
+      <path d="M432,151 H468" marker-start="url(#ar)"/>
+      <path d="M575,182 V218"/>
+      <path d="M340,184 V218" marker-start="url(#ar)"/>
+      <path d="M210,251 H248"/>
+      <path d="M210,351 H248"/>
+      <path d="M460,282 V318"/>
+      <path d="M110,382 V428" marker-start="url(#ar)"/>
+      <path d="M310,382 V428" marker-start="url(#ar)"/>
+      <path d="M445,382 V428" marker-start="url(#ar)"/>
+      <path d="M600,382 V428"/>
+      <path d="M670,251 H690 V459 H672"/>
+      <path d="M512,382 V534 H518" stroke-dasharray="4 3"/>
+    </g>
+    <g font-size="8.8" fill="#5b6672">
+      <text x="116" y="98">REST /api/v1 · Bearer JWT</text>
+      <text x="456" y="35">SSO</text>
+      <text x="214" y="145">enqueue</text>
+      <text x="434" y="145">consume</text>
+      <text x="580" y="204">run_supervisor()</text>
+      <text x="345" y="204">checkpoints</text>
+      <text x="213" y="245">resume</text>
+      <text x="213" y="345">/rag</text>
+      <text x="466" y="304">rag_search · runbook ingest</text>
+      <text x="116" y="410">asyncpg</text>
+      <text x="316" y="410">sparse</text>
+      <text x="451" y="410">dense · upsert</text>
+      <text x="606" y="410">embed · answer</text>
+      <text x="658" y="304">chat</text>
+      <text x="470" y="575">alt. embeddings</text>
+    </g>
+    <g font-size="8.8" fill="#5b6672">
+      <path d="M10,585 H40" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)"/>
+      <text x="46" y="588">call</text>
+      <path d="M80,585 H110" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)" marker-start="url(#ar)"/>
+      <text x="116" y="588">read and write</text>
+      <path d="M190,585 H220" stroke="#5b6672" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+      <text x="226" y="588">optional / alternative</text>
+    </g>
+  </svg>
+  <div class="legend"><span class="l-client">Client</span><span class="l-api">API</span><span class="l-async">Async jobs</span><span class="l-ai">AI layer</span><span class="l-data">Data stores</span><span class="l-model">Models</span><span class="l-ident">Identity</span></div>
+  </div>
+  <div class="cap">Figure 1. Containers and their connections. Agent tools also read and write PostgreSQL directly (ticket lookups, SLA checks, writing resolutions); those links are omitted for clarity.</div>
+
+  <h3>Component responsibilities</h3>
+  <table>
+    <tr><th style="width:22%">Component</th><th style="width:30%">Code</th><th>Responsibility</th></tr>
+    <tr><td>React SPA</td><td><code>frontend/src/</code></td><td>UI; stores the JWT in a Zustand auth store; polls agent status and trace</td></tr>
+    <tr><td>FastAPI</td><td><code>backend/app/main.py</code>, <code>api/v1/</code></td><td>Auth, RBAC, ticket CRUD and lifecycle, RAG and agent endpoints</td></tr>
+    <tr><td>Celery worker / beat</td><td><code>backend/app/workers/</code></td><td>Runs the agent pipeline, RAG ingestion and scheduled jobs</td></tr>
+    <tr><td>LangGraph supervisor</td><td><code>agents/supervisor.py</code></td><td>Routes the ticket between agents, checkpoints state, pauses for humans</td></tr>
+    <tr><td>Agents + tools</td><td><code>agents/*.py</code>, <code>agents/tools/</code></td><td>LLM reasoning steps with structured JSON output; tool calls to RAG, web, NVD, DB</td></tr>
+    <tr><td>RAG library</td><td><code>rag/</code></td><td>Loading, chunking, embedding, hybrid retrieval, reranking, answer generation</td></tr>
+    <tr><td>Evals / fine-tuning</td><td><code>evals/</code>, <code>fine_tuning/</code></td><td>Offline quality gates and an optional domain model</td></tr>
+  </table>
+</section>
+
+<!-- ═══════════════ PAGE 3 · SEQUENCE ═══════════════ -->
+<section class="page">
+  <h2>3. Ticket lifecycle, end to end</h2>
+  <p>The sequence below follows one ticket from creation to resolution, including the optional human-review pause. Steps 3–5 are
+  asynchronous: the API returns as soon as the Celery task is queued, and the client polls for progress.</p>
+
+  <div class="fig">
+  <svg class="tall" viewBox="0 0 700 600" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f2933"/></marker>
+    </defs>
+    <g font-size="10" font-weight="700" text-anchor="middle">
+      <rect x="15" y="8" width="90" height="34" rx="5" fill="#e8f0fa" stroke="#2563a8"/><text x="60" y="29" fill="#2563a8">User / SPA</text>
+      <rect x="130" y="8" width="90" height="34" rx="5" fill="#ecebfb" stroke="#4f46b5"/><text x="175" y="29" fill="#4f46b5">FastAPI</text>
+      <rect x="245" y="8" width="90" height="34" rx="5" fill="#fdf3e1" stroke="#b7791f"/><text x="290" y="29" fill="#b7791f">Celery</text>
+      <rect x="360" y="8" width="90" height="34" rx="5" fill="#f3eafa" stroke="#7c3aad"/><text x="405" y="29" fill="#7c3aad">Supervisor</text>
+      <rect x="475" y="8" width="90" height="34" rx="5" fill="#e6f4ec" stroke="#2f855a"/><text x="520" y="24" fill="#2f855a">PostgreSQL</text><text x="520" y="36" fill="#2f855a" font-size="8.5" font-weight="400">+ Redis state</text>
+      <rect x="590" y="8" width="95" height="34" rx="5" fill="#fdece2" stroke="#c05621"/><text x="637" y="24" fill="#c05621">RAG · LLM</text><text x="637" y="36" fill="#c05621" font-size="8.5" font-weight="400">web · NVD</text>
+    </g>
+    <g stroke="#b8c0c8" stroke-dasharray="3 3">
+      <path d="M60,42 V590"/><path d="M175,42 V590"/><path d="M290,42 V590"/><path d="M405,42 V590"/><path d="M520,42 V590"/><path d="M637,42 V590"/>
+    </g>
+    <!-- activation bars -->
+    <rect x="401" y="196" width="8" height="250" fill="#f3eafa" stroke="#7c3aad"/>
+    <!-- HITL band -->
+    <rect x="5" y="372" width="690" height="80" fill="#fdf3e1" opacity="0.55"/>
+    <text x="10" y="384" font-size="8.5" font-weight="700" fill="#b7791f">OPTIONAL · human review</text>
+
+    <g stroke="#1f2933" stroke-width="1.1" fill="none" marker-end="url(#ar2)">
+      <path d="M60,66 H171"/>
+      <path d="M175,86 H516"/>
+      <path d="M60,116 H171"/>
+      <path d="M175,136 H286"/>
+      <path d="M171,156 H64" stroke-dasharray="4 3"/>
+      <path d="M290,186 H401"/>
+      <path d="M409,206 H516"/>
+      <path d="M409,232 H633"/>
+      <path d="M633,252 H413" stroke-dasharray="4 3"/>
+      <path d="M409,280 H516"/>
+      <path d="M409,310 H633"/>
+      <path d="M409,340 H633"/>
+      <path d="M409,400 H516"/>
+      <path d="M60,424 H171"/>
+      <path d="M175,440 H401"/>
+      <path d="M409,480 H516"/>
+      <path d="M60,520 H171"/>
+      <path d="M171,540 H64" stroke-dasharray="4 3"/>
+    </g>
+    <g font-size="9" fill="#1f2933">
+      <text x="66" y="62">1  POST /tickets</text>
+      <text x="181" y="82">2  injection check (422 if flagged) · insert ticket · status open · SLA due</text>
+      <text x="66" y="112">3  POST /agents/run/{id}</text>
+      <text x="181" y="132">4  process_ticket_task.delay()</text>
+      <text x="70" y="152">reply at once: dispatched + task id</text>
+      <text x="296" y="182">5  run_supervisor(ticket_id)</text>
+      <text x="415" y="202">6  load ticket · pre-check · in_progress</text>
+      <text x="415" y="228">7  Triage: SLA check, LLM JSON</text>
+      <text x="415" y="248">category · priority · next</text>
+      <text x="415" y="276">8  checkpoint after every node</text>
+      <text x="415" y="306">9  Security (if flagged): NVD, PII scan</text>
+      <text x="415" y="336">10 Diagnosis: rag_search + web_search</text>
+      <text x="415" y="360" fill="#5b6672">Knowledge: runbook → RAG ingest</text>
+      <text x="415" y="396">11 interrupt() · state saved</text>
+      <text x="66" y="420">12 POST /agents/resume</text>
+      <text x="181" y="436">13 Command(resume={approved, next_agent, notes})</text>
+      <text x="415" y="476">14 persist_final_state: save outputs · resolve or hand to human</text>
+      <text x="66" y="516">15 GET /agents/status · /trace</text>
+      <text x="70" y="556">status, triage/diagnosis JSON, message trace</text>
+    </g>
+    <text x="415" y="502" font-size="8.5" fill="#2f855a">Runs after the first run and after every resume (13)</text>
+  </svg>
+  </div>
+  <div class="cap">Figure 2. Sequence for one ticket. Dashed arrows are responses. In step 6, a ticket whose text matches an injection pattern is assigned to a human and the run stops before any LLM call.</div>
+
+  <h3>Ticket status lifecycle</h3>
+  <p>Manual status changes go through <code>POST /tickets/{id}/status</code>, which rejects any transition not in
+  <code>VALID_STATUS_TRANSITIONS</code> and writes a <code>ticket_status_history</code> row with the user and reason. The agent pipeline sets
+  <code>in_progress</code> and <code>resolved</code> directly on the model.</p>
+  <table>
+    <tr><th style="width:22%">From</th><th>Allowed next states</th></tr>
+    <tr><td><code>open</code></td><td>triaged · closed · cancelled</td></tr>
+    <tr><td><code>triaged</code></td><td>in_progress · cancelled</td></tr>
+    <tr><td><code>in_progress</code></td><td>awaiting_user · resolved · closed · cancelled</td></tr>
+    <tr><td><code>awaiting_user</code></td><td>in_progress · resolved · cancelled</td></tr>
+    <tr><td><code>resolved</code> · <code>closed</code> · <code>cancelled</code></td><td>none (terminal); a resolved ticket cannot be closed</td></tr>
+  </table>
+  <p><b>SLA windows</b> are set at creation from the priority: critical 4 h · high 8 h · medium 24 h · low 72 h. A Beat job flags breaches every 15 minutes.</p>
+</section>
+
+<!-- ═══════════════ PAGE 4 · AGENTS ═══════════════ -->
+<section class="page">
+  <h2>4. Agent orchestration</h2>
+  <p>The supervisor is a LangGraph <code>StateGraph</code> over a shared <code>TicketState</code>. Every node returns the full state with
+  <code>next</code> set; one routing function reads it after each node. If <code>iteration</code> has reached 8, the router sends the run to
+  <code>guard</code>, which ends it with an error for manual review. State is checkpointed in Redis with the ticket ID as the thread ID.</p>
+
+  <div class="fig">
+  <svg class="mid" viewBox="0 0 700 330"xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6672"/></marker>
+    </defs>
+    <circle cx="28" cy="60" r="18" fill="#eef0f2" stroke="#5b6672"/><text x="28" y="63" font-size="8" font-weight="700" text-anchor="middle">START</text>
+    <circle cx="668" cy="60" r="18" fill="#eef0f2" stroke="#5b6672"/><text x="668" y="63" font-size="8" font-weight="700" text-anchor="middle">END</text>
+    <g font-size="9.5">
+      <rect x="70" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="80" y="53" font-weight="700" font-size="11" fill="#7c3aad">Triage</text>
+      <text x="80" y="68">classify · priority · keywords</text>
+      <text x="80" y="80" fill="#5b6672" font-size="8.5">tool: check_sla_status</text>
+
+      <rect x="300" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="310" y="53" font-weight="700" font-size="11" fill="#7c3aad">Diagnosis</text>
+      <text x="310" y="68">root cause · fix steps</text>
+      <text x="310" y="80" fill="#5b6672" font-size="8.5">rag_search · web_search · SLA</text>
+
+      <rect x="490" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="500" y="53" font-weight="700" font-size="11" fill="#7c3aad">Knowledge</text>
+      <text x="500" y="68">runbook → RAG · save ticket</text>
+      <text x="500" y="80" fill="#5b6672" font-size="8.5">generate_runbook · update_ticket</text>
+
+      <rect x="160" y="120" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="170" y="138" font-weight="700" font-size="11" fill="#7c3aad">Security</text>
+      <text x="170" y="153">threat level · CVEs · PII</text>
+      <text x="170" y="165" fill="#5b6672" font-size="8.5">cve_lookup · rag_search · regex</text>
+
+      <rect x="180" y="225" width="180" height="50" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
+      <text x="190" y="243" font-weight="700" font-size="11" fill="#b7791f">Human review</text>
+      <text x="190" y="258">interrupt() · wait for /resume</text>
+      <text x="190" y="270" fill="#5b6672" font-size="8.5">agent or admin approves / redirects</text>
+
+      <rect x="490" y="130" width="180" height="62" rx="6" fill="#eef0f2" stroke="#5b6672"/>
+      <text x="500" y="148" font-weight="700" font-size="11" fill="#5b6672">Guard</text>
+      <text x="500" y="163">reached from any node when</text>
+      <text x="500" y="176">iteration ≥ 8 → END with error</text>
+    </g>
+    <g stroke="#5b6672" stroke-width="1.2" fill="none" marker-end="url(#ar3)">
+      <path d="M46,60 H68"/>
+      <path d="M220,55 H298"/>
+      <path d="M450,55 H488"/>
+      <path d="M640,60 H648"/>
+      <path d="M190,85 V118"/>
+      <path d="M310,138 H330 V87"/>
+      <path d="M235,170 V223"/>
+      <path d="M100,85 V250 H178"/>
+      <path d="M420,85 V250 H362"/>
+      <path d="M350,225 V200 H375 V87"/>
+      <path d="M270,275 V305 H668 V80"/>
+    </g>
+    <g font-size="8.5" fill="#5b6672">
+      <text x="232" y="49">default route</text>
+      <text x="196" y="103">security keywords</text>
+      <text x="336" y="128">then diagnose</text>
+      <text x="241" y="200">critical · escalate</text>
+      <text x="241" y="211">· containment</text>
+      <text x="106" y="196">HITL triggers*</text>
+      <text x="426" y="215">escalation</text>
+      <text x="426" y="226">needed</text>
+      <text x="380" y="190">approved →</text>
+      <text x="380" y="201">next_agent</text>
+      <text x="380" y="300">not approved → END · Knowledge → END sets status resolved</text>
+    </g>
+  </svg>
+  </div>
+  <div class="cap">Figure 3. Supervisor graph. *Triage escalates on data-loss risk, a production outage over 1 h, a security breach, or confidence below 0.4. Before START, <code>run_supervisor</code> re-checks the ticket text for prompt injection and hands matches to a human instead of running the graph.</div>
+
+  <h3>Agents</h3>
+  <table>
+    <tr><th style="width:13%">Agent</th><th style="width:30%">Inputs and tools</th><th style="width:32%">Output (JSON written to state)</th><th>Routing</th></tr>
+    <tr><td><b>Triage</b></td><td>Title, description, user's category and priority, SLA status</td><td>category, priority (+ override reason), root-cause hypothesis, components, keywords, urgency signals, confidence</td><td>security / diagnosis, or human review</td></tr>
+    <tr><td><b>Security</b></td><td>NVD CVE lookup on triage keywords, RAG search in <i>security</i>, regex PII scan (email, phone, IP, card)</td><td>threat level and type, CVEs, PII types, immediate actions, remediation, compliance impact</td><td>human review if critical, escalate or containment; else diagnosis</td></tr>
+    <tr><td><b>Diagnosis</b></td><td>RAG search (top 3, category filter), DuckDuckGo search, SLA status, triage hypothesis</td><td>root cause, confidence, evidence, numbered steps with commands, verification, prevention, ETA</td><td>human review if escalation needed; else knowledge</td></tr>
+    <tr><td><b>Knowledge</b></td><td>Diagnosis result</td><td>If confidence ≥ 0.6: generated runbook ingested into RAG as <code>auto_&lt;ticket&gt;.md</code>; resolution and diagnosis saved to ticket</td><td>END</td></tr>
+  </table>
+  <p>Every agent uses temperature 0 and asks for JSON only. If parsing fails, it extracts the first <code>{…}</code> block, and if that fails
+  too it falls back to a safe default (low confidence, or escalation) so the graph never crashes on malformed output.</p>
+
+  <h3>TicketState</h3>
+  <table>
+    <tr><th style="width:25%">Group</th><th>Fields</th></tr>
+    <tr><td>Ticket data</td><td><code>ticket_id</code> <code>ticket_number</code> <code>title</code> <code>description</code> <code>category</code> <code>priority</code> <code>created_by</code></td></tr>
+    <tr><td>Agent outputs</td><td><code>triage_result</code> <code>security_result</code> <code>diagnosis_result</code> <code>knowledge_result</code> <code>final_resolution</code></td></tr>
+    <tr><td>Control</td><td><code>next</code> <code>iteration</code> <code>hitl_required</code> <code>hitl_reason</code> <code>error</code></td></tr>
+    <tr><td>Trace</td><td><code>messages</code> (append-only via <code>add_messages</code>; shown by <code>/agents/trace</code>) · <code>langsmith_run_id</code></td></tr>
+  </table>
+</section>
+
+<!-- ═══════════════ PAGE 5 · RAG ═══════════════ -->
+<section class="page">
+  <h2>5. RAG pipeline</h2>
+  <p>Retrieval combines two complementary signals. Dense vectors find passages with similar <i>meaning</i>, even with different wording.
+  BM25 finds exact <i>terms</i> such as error codes, hostnames and product names that embeddings tend to blur. The two ranked lists are
+  merged with reciprocal rank fusion, then a cross-encoder rereads each candidate together with the query to pick the best few.</p>
+
+  <h3>Query path</h3>
+  <div class="flow">
+    <div class="step c-client"><b>Query</b>/rag/query, /rag/query/stream or the rag_search agent tool</div><div class="arrow">→</div>
+    <div class="step c-model"><b>Embed</b>same model as ingestion</div><div class="arrow">→</div>
+    <div class="step c-data"><b>Retrieve</b>Qdrant top 10 (tenant, type, category filters) + BM25 top 10</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>RRF fuse</b>score = Σ 1/(60 + rank); keep 20</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Rerank</b>cross-encoder scores each (query, chunk) pair; keep 3</div><div class="arrow">→</div>
+    <div class="step c-model"><b>Generate</b>context-only prompt with numbered, cited sources</div>
+  </div>
+
+  <h3>Ingestion path</h3>
+  <div class="flow">
+    <div class="step c-ops"><b>Sources</b>sample runbooks, raw text, PDF / Markdown uploads, resolved tickets, agent runbooks</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Load</b>documents + metadata (source type, category, tenant)</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Chunk</b>512 tokens, 64 overlap; header-aware; drops chunks under 50</div><div class="arrow">→</div>
+    <div class="step c-model"><b>Embed</b>OpenAI 1536-d or Ollama 768-d</div><div class="arrow">→</div>
+    <div class="step c-data"><b>Index</b>Qdrant upsert with deterministic chunk IDs; BM25 add</div>
+  </div>
+
+  <h3>Why reciprocal rank fusion</h3>
+  <p>Cosine similarity and BM25 scores live on unrelated scales, so adding them directly is meaningless. RRF uses only each document's
+  <i>rank</i> in each list. A chunk ranked 2nd by vectors and 3rd by BM25 scores 1/62 + 1/63 ≈ 0.032, beating a chunk ranked 1st by only
+  one retriever (1/61 ≈ 0.016). Agreement between retrievers is rewarded without any tuning.</p>
+
+  <h3>Configuration (<code>rag/config.py</code>, overridable in <code>.env</code>)</h3>
+  <table>
+    <tr><th style="width:30%">Setting</th><th style="width:16%">Default</th><th>Meaning</th></tr>
+    <tr><td><code>embedding_provider</code></td><td>openai</td><td><code>openai</code> or <code>ollama</code>; must match <code>vector_dim</code></td></tr>
+    <tr><td><code>vector_dim</code></td><td>1536</td><td>1536 for text-embedding-3-small, 768 for nomic-embed-text</td></tr>
+    <tr><td><code>chunk_size</code> / <code>chunk_overlap</code> / <code>min_chunk_size</code></td><td>512 / 64 / 50</td><td>Chunking, in tokens</td></tr>
+    <tr><td><code>dense_top_k</code> / <code>sparse_top_k</code></td><td>10 / 10</td><td>Candidates from each retriever</td></tr>
+    <tr><td><code>rrf_k</code></td><td>60</td><td>RRF smoothing constant</td></tr>
+    <tr><td><code>rerank_candidates</code></td><td>20</td><td>Fused candidates handed to the reranker (added 15 Nov 2026; was effectively 3)</td></tr>
+    <tr><td><code>rerank_top_k</code></td><td>3</td><td>Passages kept for the LLM</td></tr>
+    <tr><td><code>reranker_model</code></td><td>ms-marco-MiniLM-L-6-v2</td><td>Runs locally on CPU; falls back to fusion order if it fails to load</td></tr>
+    <tr><td><code>llm_model</code> / <code>max_tokens</code></td><td>gpt-4o / 1024</td><td>Generation model (overridden by <code>LLM_MODEL</code>)</td></tr>
+  </table>
+
+  <div class="note"><b>Changing the embedding provider</b> changes the vector size, so the Qdrant collection must be deleted
+  (<code>DELETE /rag/collection</code>) and everything re-ingested.</div>
+
+  <h3>Feedback loop</h3>
+  <p>The knowledge base grows from three automatic sources: the Knowledge agent's generated runbooks (immediately), resolved tickets (Beat
+  job every 6 hours, up to 200 at a time), and the weekly BM25 rebuild from Qdrant, which keeps the keyword index consistent with the
+  vector store across restarts.</p>
+</section>
+
+<!-- ═══════════════ PAGE 6 · DATA + SECURITY ═══════════════ -->
+<section class="page">
+  <h2>6. Data model</h2>
+  <p>PostgreSQL holds the system of record. Agent outputs are stored as JSONB on the ticket so their schema can evolve without migrations.
+  Schema changes go through Alembic; in development the API also auto-creates tables at startup.</p>
+  <div class="grid2">
+    <div class="card"><h4>users</h4>
+      <code>id</code> PK · <code>email</code>, <code>username</code> unique · <code>full_name</code> · <code>role</code> (admin | agent | analyst | user) ·
+      <code>keycloak_id</code> unique · <code>is_keycloak_user</code> · <code>hashed_password</code> (local only) · <code>is_active</code> · timestamps, <code>last_login_at</code></div>
+    <div class="card"><h4>tickets</h4>
+      <code>id</code> PK · <code>ticket_number</code> unique · <code>title</code>, <code>description</code> · <code>status</code>, <code>priority</code>, <code>category</code>,
+      <code>assigned_agent</code> enums · <code>triage_output</code>, <code>diagnosis_output</code> JSONB · <code>resolution_notes</code> · <code>langsmith_run_id</code> ·
+      <code>created_by_id</code> → users · <code>sla_due_at</code>, <code>sla_breached</code> · created / updated / triaged / resolved timestamps</div>
+    <div class="card"><h4>ticket_status_history</h4>
+      <code>id</code> PK · <code>ticket_id</code> → tickets · <code>old_status</code>, <code>new_status</code> · <code>changed_by_id</code> → users · <code>reason</code> · <code>changed_at</code></div>
+    <div class="card"><h4>audit_logs</h4>
+      <code>id</code> PK · <code>user_id</code> → users · <code>action</code> · <code>resource_type</code>, <code>resource_id</code> · <code>details</code> JSONB ·
+      <code>trace_id</code>, <code>span_id</code>, <code>request_id</code> · <code>ip_address</code>, <code>user_agent</code> · <code>timestamp</code></div>
+  </div>
+  <p style="margin-top:6pt"><b>Other stores.</b> Redis: db0 LangGraph checkpoints (one thread per ticket), db1 Celery broker, db2 task results (24 h expiry).
+  Qdrant: collection <code>nexus_knowledge</code>, payload carries <code>tenant_id</code>, <code>source_type</code>, <code>category</code> and source names.
+  BM25: pickled index on local disk.</p>
+
+  <h2 style="margin-top:14pt">7. Security and access control</h2>
+  <h3>Authentication</h3>
+  <p>The API accepts two kinds of Bearer token. <b>Keycloak</b> tokens are verified against the realm's JWKS endpoint; on first use a matching
+  local user is created automatically from the token's email and username. <b>Local</b> HS256 tokens from <code>/auth/login</code> are the
+  development fallback, with refresh tokens valid for 7 days and access tokens for 60 minutes. Self-registration is refused when
+  <code>APP_ENV=production</code>; elsewhere it always creates a <code>user</code> (a <code>role</code> field is rejected with 422). The first admin is
+  promoted from the server shell with <code>python -m app.cli make-admin &lt;username&gt;</code>.</p>
+
+  <h3>Authorisation (RBAC)</h3>
+  <table>
+    <tr><th style="width:44%">Action</th><th>user</th><th>analyst</th><th>agent</th><th>admin</th></tr>
+    <tr><td>Create, list and read tickets · RAG search and query · agent status and trace</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>Update tickets · change status · run and resume agents</td><td></td><td></td><td>✓</td><td>✓</td></tr>
+    <tr><td>List users · change roles</td><td></td><td></td><td></td><td>✓</td></tr>
+  </table>
+
+  <h3>Other controls</h3>
+  <table>
+    <tr><th style="width:26%">Control</th><th style="width:16%">State</th><th>Detail</th></tr>
+    <tr><td>Rate limiting</td><td><span class="tag t-ok">Active</span></td><td>SlowAPI, per client IP, <code>RATE_LIMIT_PER_MINUTE</code> (default 60)</td></tr>
+    <tr><td>CORS</td><td><span class="tag t-ok">Active</span></td><td>Origins from <code>CORS_ORIGINS</code> (localhost 3000 and 5173)</td></tr>
+    <tr><td>Swagger / ReDoc</td><td><span class="tag t-ok">Active</span></td><td>Disabled in production</td></tr>
+    <tr><td>Secrets</td><td><span class="tag t-ok">Active</span></td><td>Compose refuses to start without required <code>.env</code> values; example file holds placeholders only</td></tr>
+    <tr><td>PII detection</td><td><span class="tag t-part">Partial</span></td><td>Regex scan inside the Security agent only; Presidio redaction (<code>redact_pii</code>) written but not called</td></tr>
+    <tr><td>Prompt-injection guard</td><td><span class="tag t-ok">Active</span></td><td><code>check_input_safety</code> rejects matching text with 422 on ticket create, resolution notes, status notes, RAG query / stream and text or file ingestion; <code>run_supervisor</code> re-checks before calling the LLM. Pattern-based: misses rephrased attacks and does not cover web or NVD results the agents fetch</td></tr>
+    <tr><td>Multi-tenancy</td><td><span class="tag t-part">Partial</span></td><td>Tenant filter in RAG; agents always use tenant <code>default</code></td></tr>
+  </table>
+</section>
+
+<!-- ═══════════════ PAGE 7 · ASYNC + DEPLOY ═══════════════ -->
+<section class="page">
+  <h2>8. Background processing</h2>
+  <p>Celery is configured for long, reliable tasks: messages are acknowledged only after a task finishes (<code>acks_late</code>), re-queued
+  if a worker dies, and handed out one at a time (<code>prefetch_multiplier=1</code>). Tasks wrap async code in a fresh event loop and dispose
+  of the database pool afterwards, so asyncpg connections never leak across loops.</p>
+  <table>
+    <tr><th style="width:33%">Task</th><th style="width:12%">Queue</th><th style="width:20%">Trigger</th><th>What it does</th></tr>
+    <tr><td><code>process_ticket_task</code></td><td>agents</td><td>POST /agents/run</td><td>Runs the LangGraph supervisor for one ticket (3 retries, 30 s apart)</td></tr>
+    <tr><td><code>check_sla_breaches</code></td><td>default</td><td>Beat, every 15 min</td><td>Flags open, triaged or in-progress tickets past <code>sla_due_at</code></td></tr>
+    <tr><td><code>ingest_resolved_tickets_task</code></td><td>rag</td><td>Beat, every 6 h</td><td>Adds up to 200 newly resolved tickets to the knowledge base</td></tr>
+    <tr><td><code>rebuild_bm25_task</code></td><td>rag</td><td>Beat, every 7 days</td><td>Rebuilds the BM25 index from Qdrant</td></tr>
+    <tr><td><code>ingest_document_task</code></td><td>rag</td><td>On demand</td><td>Ingests one file in the background</td></tr>
+    <tr><td><code>index_ticket_for_rag</code>, <code>run_eval_suite</code></td><td>rag / evals</td><td>—</td><td>Stubs: log only</td></tr>
+  </table>
+
+  <h2 style="margin-top:14pt">9. Deployment, observability and ML ops</h2>
+  <h3>Docker Compose services</h3>
+  <table>
+    <tr><th style="width:18%">Service</th><th style="width:30%">Image</th><th style="width:17%">Host port</th><th>Notes</th></tr>
+    <tr><td>postgres</td><td>postgres:16-alpine</td><td>15432</td><td>Volume <code>postgres_data</code>; health check</td></tr>
+    <tr><td>redis</td><td>redis/redis-stack-server</td><td>6379</td><td>Password required; stack build needed for the LangGraph Redis saver</td></tr>
+    <tr><td>qdrant</td><td>qdrant/qdrant:v1.12.1</td><td>6333, 6334</td><td>Custom config mounted from <code>qdrant_config.yaml</code></td></tr>
+    <tr><td>ollama</td><td>ollama/ollama</td><td>11434</td><td>Pulls <code>nomic-embed-text</code> on start</td></tr>
+    <tr><td>keycloak</td><td>keycloak:24.0 (start-dev)</td><td>8080</td><td>Stores data in the shared Postgres</td></tr>
+    <tr><td>api</td><td>./backend</td><td>8000</td><td>uvicorn <code>--reload</code>; mounts backend, rag and agents source</td></tr>
+    <tr><td>celery-worker</td><td>./backend</td><td>—</td><td>Concurrency 4; ping health check</td></tr>
+    <tr><td>celery-beat</td><td>./backend</td><td>—</td><td>Schedules the periodic tasks</td></tr>
+  </table>
+  <p>This is a development topology: source is bind-mounted with auto-reload, and Keycloak runs in dev mode. A production deployment would
+  build immutable images, run Keycloak in production mode with its own database, and put TLS and a reverse proxy in front of the API.</p>
+
+  <h3>Observability</h3>
+  <ul style="margin:0 0 6pt; padding-left:14pt">
+    <li><b>Logs:</b> loguru, one line per request with method, path, status, duration and <code>X-Request-ID</code> (also returned as a header).</li>
+    <li><b>Tracing:</b> LangSmith tracing is enabled through <code>LANGCHAIN_TRACING_V2</code>; the ticket column <code>langsmith_run_id</code> is never filled.</li>
+    <li><b>Metrics:</b> Prometheus counters and histograms (tickets created, agent runs, RAG latency, eval scores) are defined but not exposed or recorded.</li>
+    <li><b>Health:</b> <code>/health/</code> liveness, <code>/health/ready</code> checks DB and Redis, <code>/health/info</code>.</li>
+  </ul>
+
+  <h3>Evaluation and CI</h3>
+  <p>GitHub Actions runs migrations, pytest and ruff against Postgres and Redis service containers. On <code>main</code>, an eval gate runs RAGAS
+  with thresholds of faithfulness 0.75, answer relevancy 0.70, context recall 0.65 and context precision 0.60; the agent eval requires 70 % triage accuracy.</p>
+
+  <h3>Fine-tuning pipeline (offline)</h3>
+  <div class="flow">
+    <div class="step c-data"><b>Resolved tickets</b>≥ 50 exported from Postgres</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>generate_dataset.py</b>Alpaca-style JSONL pairs</div><div class="arrow">→</div>
+    <div class="step c-ops"><b>Colab + Unsloth</b>QLoRA on Llama 3.2 3B Instruct</div><div class="arrow">→</div>
+    <div class="step c-model"><b>GGUF Q4_K_M</b>≈ 2 GB + Modelfile</div><div class="arrow">→</div>
+    <div class="step c-model"><b>ollama create nexus-it</b>served locally, not yet used</div>
+  </div>
+</section>
+
+<!-- ═══════════════ PAGE 8 · GAPS ═══════════════ -->
+<section class="page">
+  <h2>10. Known gaps and recommendations</h2>
+  <p>Found while reviewing the code on 15 Nov 2026. Severity reflects impact on correctness or security, not effort.</p>
+  <table>
+    <tr><th style="width:9%">Severity</th><th style="width:38%">Gap</th><th>Recommendation</th></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>Eval scores below CI thresholds.</b> The latest local RAGAS run scored below all four thresholds, so the gate on <code>main</code> will fail.</td><td>Re-run evals after the reranker fix; improve retrieval or ground-truth data before enforcing the gate.</td></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>PII redaction not applied.</b> Personal data in tickets goes to the LLM and into the knowledge base as written.</td><td>Call <code>redact_pii</code> before storage or ingestion.</td></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>Injection guard is pattern-only.</b> Rephrased attacks pass, and fetched web and NVD text is not checked.</td><td>Wrap untrusted text in delimiters in every agent prompt and instruct the model to treat it as data.</td></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>Resume loop.</b> An approved review defaults to <code>diagnosis_agent</code>; if diagnosis escalates again the run cycles until the guard stops it at 8.</td><td>Record that a human approved and skip re-escalation for the same reason.</td></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>Agents ignore tenancy.</b> Runbooks and searches from agents always use tenant <code>default</code>.</td><td>Carry tenant ID in <code>TicketState</code> and pass it through the tools.</td></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>One Redis connection per graph use.</b> Every run, status, resume and trace call opens a new checkpointer connection and re-runs setup.</td><td>Create the checkpointer once per process (API lifespan, worker init).</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Resume runs inside the HTTP request.</b> <code>POST /agents/resume</code> waits for the remaining agents and their LLM calls before replying.</td><td>Dispatch the resume as a Celery task on the <code>agents</code> queue, like <code>/agents/run</code>.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Observability unfinished.</b> <code>langsmith_run_id</code> never set; Prometheus metrics not exposed.</td><td>Capture the run ID from the tracer callback; mount a <code>/metrics</code> endpoint.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Stub tasks and unused model.</b> <code>index_ticket_for_rag</code>, <code>run_eval_suite</code> only log; the fine-tuned <code>nexus-it</code> model is not used.</td><td>Implement or remove the stubs; add a provider switch so agents can use the local model.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Analytics agent missing.</b> Present in the enum and a commented-out router only.</td><td>Build it or remove the references.</td></tr>
+  </table>
+
+  <h3>Recently fixed</h3>
+  <p><b>Reranker starved of candidates</b> (commit <code>ef25668</code>). Hybrid search previously cut the fused list to 3 before reranking,
+  so the cross-encoder could only reorder those 3. It now receives up to 20 candidates (<code>rerank_candidates</code>) and selects the best 3.</p>
+  <p><b>Prompt-injection guard wired in</b> (commit <code>b8a4c8e</code>). The existing pattern check now runs on every API path that
+  sends text to the LLM or the knowledge base, and again in <code>run_supervisor</code> before any agent runs.</p>
+  <p><b>Results lost after human review</b> (commit <code>d255a28</code>). A shared <code>persist_final_state()</code> now saves the outcome after
+  the first run and after every resume. Rejected runs and runs stopped by the guard stay open and go to a human instead of being marked
+  resolved. Resuming a ticket with no paused run returns 409.</p>
+  <p><b>Self-registration accepted any role.</b> <code>/auth/register</code> now always creates a <code>user</code> and rejects a <code>role</code>
+  field; the first admin is promoted with the <code>make-admin</code> CLI command, which writes an audit-log entry.</p>
+  <p><b>CI eval gate used the wrong key.</b> The workflow now passes <code>OPENAI_API_KEY</code>, which the code actually reads.</p>
+  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite (40 tests) passes.</p>
+  <p><b>Outdated status test</b> (commit <code>aa0fc39</code>). <code>test_change_ticket_status</code> now follows the allowed lifecycle, and a new
+  test checks that skipping straight from open to resolved is rejected.</p>
+</section>
+
+</body>
+</html>
