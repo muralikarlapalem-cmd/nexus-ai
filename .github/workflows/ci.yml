@@ -77,7 +77,7 @@ jobs:
       - name: Run RAG evals (CI gate)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # the RAG pipeline and evals call OpenAI
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
         run: python -m evals.rag_evals --ci --output evals/results/rag_results.json
       - name: Upload eval results
