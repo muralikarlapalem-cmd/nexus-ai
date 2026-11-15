@@ -167,10 +167,16 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
   -d '{
     "email": "admin@nexus.ai",
     "username": "admin",
-    "password": "Admin1234!",
-    "role": "admin"
+    "password": "Admin1234!"
   }'
 ```
+
+**Make that user an admin.** Registration always creates a `user` account (a `role` field is rejected),
+so the first admin is promoted from the server shell:
+```bash
+docker compose exec api python -m app.cli make-admin admin
+```
+After that, the admin can change other users' roles with `PATCH /api/v1/users/{id}/role`.
 
 **Login and get a token:**
 ```bash

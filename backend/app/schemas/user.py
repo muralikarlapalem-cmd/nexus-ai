@@ -12,12 +12,18 @@ from app.models.user import UserRole
 
 
 class UserCreate(BaseModel):
-    """Local user registration (dev / fallback only)."""
+    """
+    Local user registration (dev / fallback only).
+    New users always get the `user` role; there is deliberately no `role` field,
+    and unknown fields are rejected so a request asking for one gets a clear 422.
+    Promote via PATCH /users/{id}/role (admin) or `python -m app.cli make-admin`.
+    """
+    model_config = {"extra": "forbid"}
+
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50)
     full_name: str | None = Field(None, max_length=255)
     password: str = Field(..., min_length=8)
-    role: UserRole = UserRole.USER
 
 class UserRoleUpdate(BaseModel):
     """Admin-only: change a user's role."""

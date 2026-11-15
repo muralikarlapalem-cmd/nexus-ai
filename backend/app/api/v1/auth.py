@@ -26,7 +26,7 @@ from app.core.security import (
 )
 from app.database import get_async_db
 from app.models.audit_log import AuditLog
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import LoginRequest, TokenResponse, UserCreate, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -138,7 +138,7 @@ async def register_local_user(
         email=body.email,
         username=body.username,
         full_name=body.full_name,
-        role=body.role,
+        role=UserRole.USER,   # never caller-controlled; promote via admin endpoint or CLI
         hashed_password=hash_password(body.password),
         is_keycloak_user=False,
     )

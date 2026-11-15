@@ -104,7 +104,10 @@ npm run dev        # http://localhost:5173, proxies /api to :8000
 # Register a dev user
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@nexus.ai","username":"admin","password":"Admin1234!","role":"admin"}'
+  -d '{"email":"admin@nexus.ai","username":"admin","password":"Admin1234!"}'
+
+# Registration always creates a 'user'; promote the first admin from the server shell
+docker compose exec api python -m app.cli make-admin admin
 
 # Login
 curl -X POST http://localhost:8000/api/v1/auth/login \
@@ -220,8 +223,9 @@ All paths are prefixed with `/api/v1`.
 
 ### Roles & Ticket Status Rules
 
-Four role levels: `admin`, `agent`, `analyst`, `user`. New users default to `user`; promote them via
-`PATCH /api/v1/users/{id}/role` (admin-only).
+Four role levels: `admin`, `agent`, `analyst`, `user`. Self-registration always creates a `user`
+(requests that include a `role` are rejected with 422). Promote users via `PATCH /api/v1/users/{id}/role`
+(admin-only); bootstrap the first admin with `python -m app.cli make-admin <username>` in the api container.
 
 Ticket status follows a fixed lifecycle: `open → triaged → in_progress → (awaiting_user) → resolved → closed`,
 or `cancelled` from most non-terminal states. Notably, **a resolved ticket cannot be closed**:
