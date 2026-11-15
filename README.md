@@ -215,7 +215,7 @@ All paths are prefixed with `/api/v1`.
 |--------|------|------|-------------|
 | POST | `/agents/run/{ticket_id}` | Agent/Admin | Dispatch the supervisor via Celery |
 | GET | `/agents/status/{ticket_id}` | Bearer | Ticket status + agent outputs so far |
-| POST | `/agents/resume/{ticket_id}` | Agent/Admin | Resume after human review: `{"approved": bool, "next_agent": str, "notes": str}` |
+| POST | `/agents/resume/{ticket_id}` | Agent/Admin | Resume after human review: `{"approved": bool, "next_agent": str, "notes": str}`. Saves the outcome to the ticket; returns `"paused"` if the run stopped for review again, 409 if nothing is paused |
 | GET | `/agents/trace/{ticket_id}` | Bearer | Agent message trace, current node, iteration count |
 
 ### Roles & Ticket Status Rules
@@ -245,8 +245,16 @@ or `cancelled` from most non-terminal states. Notably, **a resolved ticket canno
 | `human_review` | — | Pauses with `interrupt()`. On resume: continues to `next_agent` if approved, else `END` |
 | `guard` | — | Forces `END` after 8 iterations |
 
-When the graph finishes, `run_supervisor()` saves the triage output, diagnosis output and resolution
-notes on the ticket, and marks it `resolved` if a resolution exists and no human review is pending.
+Whenever a run stops, whether it is the first run (`run_supervisor()`) or a resume after human review
+(`resume_supervisor()`), `persist_final_state()` saves the triage output, diagnosis output and resolution
+notes on the ticket, then:
+
+| How the run ended | Ticket |
+|---|---|
+| Finished with a resolution | `resolved`, `resolved_at` set |
+| Paused for human review | stays `in_progress`, assigned to `human` |
+| Rejected by the reviewer | stays `in_progress`, assigned to `human` |
+| Stopped by the guard (error) | stays `in_progress`, assigned to `human` |
 
 ---
 
