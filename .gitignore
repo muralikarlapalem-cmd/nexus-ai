@@ -24,3 +24,6 @@ evals/results/*.json
 postgres_data/
 redis_data/
 .env.local 
+
+# Celery Beat runtime state (rewritten on every run)
+celerybeat-schedule*
