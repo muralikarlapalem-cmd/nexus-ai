@@ -1,5 +1,6 @@
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ticketApi, agentApi } from '../api/tickets'
+import { agentApi } from '../api/tickets'
 import { Bot, Zap, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
 
 const AGENTS = [
@@ -9,7 +10,16 @@ const AGENTS = [
   { key: 'security',  label: 'Security',  icon: '🛡',  color: 'red'    },
 ]
 
-function AgentCard({ agent }) {
+// Colour of the live-step badge in Active Runs
+const STEP_STYLE = {
+  triage_agent:    'bg-pink-900/40 text-pink-400',
+  security_agent:  'bg-red-900/40 text-red-400',
+  diagnosis_agent: 'bg-blue-900/40 text-blue-400',
+  knowledge_agent: 'bg-yellow-900/40 text-yellow-400',
+  human_review:    'bg-orange-900/40 text-orange-400',
+}
+
+function AgentCard({ agent, model }) {
   return (
     <div className="bg-nexus-surface border border-nexus-border rounded-xl p-5">
       <div className="flex items-center gap-3 mb-3">
@@ -23,7 +33,7 @@ function AgentCard({ agent }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 mt-3">
-        {[['Model', 'Claude Sonnet 4.6'], ['Tools', agent.key === 'triage' ? '2' : agent.key === 'diagnosis' ? '3' : '3']].map(([k,v]) => (
+        {[['Model', model || '…'],['Tools', agent.key === 'triage' ? '2' : agent.key === 'diagnosis' ? '3' : '3']].map(([k,v]) => (
           <div key={k} className="bg-nexus-bg rounded-lg p-2">
             <p className="text-xs text-nexus-muted">{k}</p>
             <p className="text-xs text-white font-medium">{v}</p>
@@ -35,10 +45,17 @@ function AgentCard({ agent }) {
 }
 
 export default function AgentMonitorPage() {
+  const navigate = useNavigate()
+  // Live step of each run comes from the LangGraph checkpoint, not ticket.assigned_agent
   const { data } = useQuery({
-    queryKey: ['tickets', 'in_progress'],
-    queryFn: () => ticketApi.list({ status: 'in_progress', page_size: 10 }).then(r => r.data),
+    queryKey: ['agents', 'active'],
+    queryFn: () => agentApi.active({ limit: 10 }).then(r => r.data),
     refetchInterval: 5000,
+  })
+  const { data: info } = useQuery({
+    queryKey: ['agents', 'info'],
+    queryFn: () => agentApi.info().then(r => r.data),
+    staleTime: Infinity,
   })
 
   const active = data?.items || []
@@ -80,7 +97,7 @@ export default function AgentMonitorPage() {
 
       {/* Agent cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {AGENTS.map(a => <AgentCard key={a.key} agent={a} />)}
+        {AGENTS.map(a => <AgentCard key={a.key} agent={a} model={info?.llm_model} />)}
       </div>
 
       {/* Active runs */}
@@ -94,11 +111,15 @@ export default function AgentMonitorPage() {
         {active.length === 0
           ? <p className="text-center text-nexus-muted text-sm py-10">No active agent runs</p>
           : active.map(t => (
-            <div key={t.id} className="px-5 py-4 border-b border-nexus-border last:border-0 flex items-center gap-4">
-              <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
+            <div key={t.id} onClick={() => navigate(`/tickets/${t.id}`)}
+              className="px-5 py-4 border-b border-nexus-border last:border-0 flex items-center gap-4 cursor-pointer hover:bg-white/[0.02]">
+              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${t.current_node ? 'bg-indigo-500 animate-pulse' : 'bg-nexus-muted'}`} />
               <span className="text-xs font-mono text-indigo-400 w-28">{t.ticket_number}</span>
               <span className="text-sm text-white flex-1 truncate">{t.title}</span>
-              <span className="text-xs text-nexus-muted capitalize">{t.assigned_agent?.replace('_agent', '')}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STEP_STYLE[t.current_node] || 'bg-nexus-bg text-nexus-muted'}`}
+                title={t.iteration ? `Step ${t.iteration} of the run` : undefined}>
+                {t.current_step}
+              </span>
               <Clock size={12} className="text-nexus-muted" />
             </div>
           ))

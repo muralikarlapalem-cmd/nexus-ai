@@ -5,6 +5,8 @@ Agent orchestration endpoints:
   GET  /agents/status/{ticket_id}  — get current graph state
   POST /agents/resume/{ticket_id}  — resume after HITL checkpoint
   GET  /agents/trace/{ticket_id}   — return message trace for UI
+  GET  /agents/info                — which models the agents use (from config)
+  GET  /agents/active              — in-progress tickets with each run's live step
 """
 
 from logging import config
@@ -18,10 +20,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents.supervisor import get_supervisor_graph
 from app.core.deps import get_current_user, require_agent_or_admin
 from app.database import get_async_db
-from app.models.ticket import Ticket, TicketStatus
-from app.models.user import User
+from app.models.ticket import AssignedAgent, Ticket, TicketStatus
+from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
+
+
+# Graph node name → label shown in the UI for a run that is about to run / running it
+NODE_STEP_LABELS = {
+    "triage_agent": "Triage",
+    "security_agent": "Security",
+    "diagnosis_agent": "Diagnosis",
+    "knowledge_agent": "Knowledge",
+    "human_review": "Awaiting human review",
+    "guard": "Stopping (iteration limit)",
+}
+
+
+def live_step(next_nodes: tuple | None, has_checkpoint: bool, assigned_agent: AssignedAgent) -> str:
+    """
+    Describe where a ticket's agent run is right now.
+
+    LangGraph saves a checkpoint after every step; its `next` names the node that
+    runs next (i.e. the one executing now). An empty `next` means the graph has
+    stopped, so we fall back to whether a human has taken the ticket over.
+    """
+    if next_nodes:
+        return NODE_STEP_LABELS.get(next_nodes[0], next_nodes[0])
+    if assigned_agent == AssignedAgent.HUMAN:
+        return "With a human"
+    return "Finishing" if has_checkpoint else "Queued"
 
 
 class HITLResumeRequest(BaseModel):
@@ -69,6 +97,71 @@ async def trigger_agent_run(
         message="Agent supervisor started. Poll /agents/status for updates.",
         task_id=task.id,
     )
+
+
+@router.get("/info")
+async def get_agent_info(current_user: User = Depends(get_current_user)):
+    """Models the agents actually use, read from config so the UI never hard-codes them."""
+    from rag.config import rag_settings
+
+    embedding_model = (
+        rag_settings.embedding_model_openai
+        if rag_settings.embedding_provider.value == "openai"
+        else rag_settings.embedding_model_ollama
+    )
+    return {
+        "llm_model": rag_settings.llm_model,
+        "embedding_provider": rag_settings.embedding_provider.value,
+        "embedding_model": embedding_model,
+        "reranker_model": rag_settings.reranker_model,
+    }
+
+
+@router.get("/active")
+async def get_active_runs(
+    limit: int = 10,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    In-progress tickets plus the live step of each agent run, read from the
+    LangGraph checkpoint (not from assigned_agent, which is only set at the start).
+    """
+    query = select(Ticket).where(Ticket.status == TicketStatus.IN_PROGRESS)
+    if current_user.role == UserRole.USER:
+        query = query.where(Ticket.created_by_id == current_user.id)
+    query = query.order_by(Ticket.updated_at.desc()).limit(max(1, min(limit, 50)))
+    tickets = (await db.execute(query)).scalars().all()
+
+    snapshots: dict[str, object] = {}
+    if tickets:
+        try:
+            async with get_supervisor_graph() as graph:
+                for t in tickets:
+                    snapshots[str(t.id)] = await graph.aget_state(
+                        {"configurable": {"thread_id": str(t.id)}}
+                    )
+        except Exception:
+            snapshots = {}   # Redis unreachable: still list the runs, just without a live step
+
+    items = []
+    for t in tickets:
+        snap = snapshots.get(str(t.id))
+        has_checkpoint = bool(snap and snap.values)
+        next_nodes = tuple(snap.next) if snap and snap.next else None
+        items.append({
+            "id": str(t.id),
+            "ticket_number": t.ticket_number,
+            "title": t.title,
+            "priority": t.priority.value,
+            "assigned_agent": t.assigned_agent.value,
+            "current_step": live_step(next_nodes, has_checkpoint, t.assigned_agent)
+                            if snapshots else "Unknown",
+            "current_node": next_nodes[0] if next_nodes else None,
+            "iteration": snap.values.get("iteration", 0) if has_checkpoint else 0,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        })
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/status/{ticket_id}")

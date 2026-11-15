@@ -26,6 +26,8 @@ export const agentApi = {
   status: (id)        => client.get(`/agents/status/${id}`),
   trace:  (id)        => client.get(`/agents/trace/${id}`),
   resume: (id, data)  => client.post(`/agents/resume/${id}`, data),
+  info:   ()          => client.get('/agents/info'),
+  active: (params)    => client.get('/agents/active', { params }),
 }
 
 export const authApi = {
