@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -101,11 +101,13 @@ async def list_tickets(
     page_size: int = Query(20, ge=1, le=100),
     status: TicketStatus | None = None,
     priority: TicketPriority | None = None,
+    q: str | None = Query(None, max_length=200, description="Search ticket number, title or description"),
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     List tickets with pagination and optional filters.
+    `q` matches the ticket number, title or description (case-insensitive).
     Regular users only see their own tickets; agents/admins see all.
     """
     query = select(Ticket).options(selectinload(Ticket.created_by_user))
@@ -118,6 +120,15 @@ async def list_tickets(
         query = query.where(Ticket.status == status)
     if priority:
         query = query.where(Ticket.priority == priority)
+    if q and q.strip():
+        # Escape LIKE wildcards so "%" or "_" in the search box are matched literally
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{term}%"
+        query = query.where(or_(
+            Ticket.ticket_number.ilike(pattern, escape="\\"),
+            Ticket.title.ilike(pattern, escape="\\"),
+            Ticket.description.ilike(pattern, escape="\\"),
+        ))
 
     # Count
     count_query = select(func.count()).select_from(query.subquery())
@@ -127,7 +138,10 @@ async def list_tickets(
     # Paginate
     offset = (page - 1) * page_size
     result = await db.execute(
-        query.order_by(Ticket.created_at.desc()).offset(offset).limit(page_size)
+        # Tie-break on ticket_number so tickets created in the same instant never
+        # shift between pages
+        query.order_by(Ticket.created_at.desc(), Ticket.ticket_number.desc())
+        .offset(offset).limit(page_size)
     )
     tickets = result.scalars().all()
 
