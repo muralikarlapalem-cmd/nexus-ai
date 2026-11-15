@@ -52,6 +52,9 @@ through `app/workers/rag_tasks.py` instead.
 
 ## Quick Start
 
+> Already set up and just restarted your laptop? See **[STARTUP.md](STARTUP.md)** for the short
+> start-up checklist.
+
 ### Prerequisites
 - Docker + Docker Compose
 - Python 3.12
