@@ -83,6 +83,8 @@ async def hybrid_search(
     Args:
         query:               Natural-language search query
         top_k:               Number of results to return after fusion
+                             (default: rag_settings.rerank_candidates — the
+                             pool the reranker then narrows to rerank_top_k)
         tenant_id:           Multi-tenant filter (None = all tenants)
         source_type_filter:  e.g. "runbook", "resolved_ticket"
         category_filter:     e.g. "network", "database"
@@ -91,7 +93,7 @@ async def hybrid_search(
     Returns:
         [(Document, rrf_score)] sorted by relevance descending
     """
-    final_k = top_k or rag_settings.rerank_top_k
+    final_k = top_k or rag_settings.rerank_candidates
     dense_k = rag_settings.dense_top_k
     sparse_k = rag_settings.sparse_top_k
 

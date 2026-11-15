@@ -44,6 +44,7 @@ class RAGSettings(BaseSettings):
     # ── Retrieval ─────────────────────────────────────────────
     dense_top_k: int = 10          # candidates from vector search
     sparse_top_k: int = 10         # candidates from BM25
+    rerank_candidates: int = 20    # fused candidates handed to the reranker
     rerank_top_k: int = 3          # final docs after reranking
     rrf_k: int = 60                # RRF constant (higher = smoother fusion)
 

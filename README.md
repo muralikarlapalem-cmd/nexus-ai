@@ -268,7 +268,7 @@ embed query
 Dense ANN (Qdrant)    BM25 keyword (rank_bm25)
 top 10                top 10
   ↓                     ↓
-  Reciprocal Rank Fusion (k = 60)
+  Reciprocal Rank Fusion (k = 60) → up to 20 candidates
           ↓
   Cross-encoder rerank (ms-marco-MiniLM-L-6-v2) → top 3
           ↓
@@ -277,10 +277,8 @@ top 10                top 10
   OpenAI chat model (default gpt-4o) → answer + sources
 ```
 
-All of these numbers are settings in `rag/config.py` and can be overridden in `.env`.
-
-> Note: `hybrid_search` currently cuts the fused list to `rerank_top_k` (3) *before* reranking, so
-> the cross-encoder only reorders those 3 candidates rather than picking the best 3 from ~20.
+All of these numbers are settings in `rag/config.py` (`dense_top_k`, `sparse_top_k`, `rrf_k`,
+`rerank_candidates`, `rerank_top_k`) and can be overridden in `.env`.
 
 ---
 

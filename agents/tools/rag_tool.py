@@ -23,9 +23,9 @@ async def rag_search(query: str, category_filter: str = "", top_k: int = 3) -> s
         from rag.retrieval.hybrid_search import hybrid_search
         from rag.retrieval.reranker import rerank_async
 
+        # Fetch the full candidate pool (rerank_candidates); the reranker narrows it to top_k
         results = await hybrid_search(
             query=query,
-            top_k=max(1, min(top_k * 2, 10)),   # fetch more, rerank to top_k
             category_filter=category_filter or None,
         )
         reranked = await rerank_async(query=query, candidates=results, top_k=top_k)
