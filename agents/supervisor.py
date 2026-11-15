@@ -216,22 +216,79 @@ async def run_supervisor(ticket_id: str) -> dict:
             t.assigned_agent = AssignedAgent.TRIAGE
 
     # Run the graph
-    #final_state = await supervisor_graph.ainvoke(initial_state, config=config)
     async with get_supervisor_graph() as graph:
         final_state = await graph.ainvoke(initial_state, config=config)
-    # Update ticket with final outputs
+
+    await persist_final_state(ticket_id, final_state)
+    return final_state
+
+
+class NoPausedRunError(Exception):
+    """Raised when /agents/resume is called for a ticket with no paused graph run."""
+
+
+async def resume_supervisor(ticket_id: str, human_response: dict) -> dict:
+    """
+    Resume a graph paused at the human_review node and save the outcome to the ticket.
+
+    human_response: {"approved": bool, "next_agent": str, "notes": str}
+    Raises NoPausedRunError if there is no paused run for this ticket.
+    """
+    from langgraph.types import Command
+
+    config = {"configurable": {"thread_id": str(ticket_id)}}
+    async with get_supervisor_graph() as graph:
+        snapshot = await graph.aget_state(config)
+        if not snapshot or not snapshot.next:
+            raise NoPausedRunError(f"No paused agent run for ticket {ticket_id}")
+        final_state = await graph.ainvoke(Command(resume=human_response), config=config)
+
+    await persist_final_state(
+        ticket_id, final_state, human_rejected=not human_response.get("approved", False)
+    )
+    return final_state
+
+
+async def persist_final_state(
+    ticket_id: str, final_state: dict, human_rejected: bool = False
+) -> None:
+    """
+    Write the outcome of a graph run (initial or resumed) back to the ticket.
+
+    Outcomes:
+      - paused again for human review → keep in_progress, assign to a human
+      - rejected by the reviewer, or stopped with an error (e.g. the iteration
+        guard) → keep in_progress, assign to a human; never auto-resolve
+      - finished with a resolution → mark resolved
+    Agent outputs and resolution notes are saved in every case, so nothing the
+    agents produced is lost.
+    """
+    from datetime import datetime, timezone
+
+    from app.database import get_db_context
+    from app.models.ticket import AssignedAgent, Ticket, TicketStatus
+    from sqlalchemy import select
+
+    paused = bool(final_state.get("__interrupt__")) or bool(final_state.get("hitl_required"))
+    needs_human = paused or human_rejected or bool(final_state.get("error"))
+
     async with get_db_context() as db:
         result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
         t = result.scalar_one_or_none()
-        if t:
-            if final_state.get("final_resolution") and not final_state.get("hitl_required"):
-                t.status = TicketStatus.RESOLVED
-                from datetime import datetime, timezone
-                t.resolved_at = datetime.now(timezone.utc)
-            t.triage_output = final_state.get("triage_result")
-            t.diagnosis_output = final_state.get("diagnosis_result")
-            t.resolution_notes = final_state.get("final_resolution")
-            if final_state.get("langsmith_run_id"):
-                t.langsmith_run_id = final_state["langsmith_run_id"]
+        if not t:
+            return
 
-    return final_state
+        if final_state.get("triage_result"):
+            t.triage_output = final_state["triage_result"]
+        if final_state.get("diagnosis_result"):
+            t.diagnosis_output = final_state["diagnosis_result"]
+        if final_state.get("final_resolution"):
+            t.resolution_notes = final_state["final_resolution"]
+        if final_state.get("langsmith_run_id"):
+            t.langsmith_run_id = final_state["langsmith_run_id"]
+
+        if needs_human or not final_state.get("final_resolution"):
+            t.assigned_agent = AssignedAgent.HUMAN
+        else:
+            t.status = TicketStatus.RESOLVED
+            t.resolved_at = datetime.now(timezone.utc)

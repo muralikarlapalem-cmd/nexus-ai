@@ -117,21 +117,26 @@ async def resume_after_hitl(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    try:
-        from agents.supervisor import get_supervisor_graph
-        from langgraph.types import Command
+    from agents.supervisor import NoPausedRunError, resume_supervisor
 
-        config = {"configurable": {"thread_id": str(ticket_id)}}
-        human_response = {
-            "approved": body.approved,
-            "next_agent": body.next_agent,
-            "notes": body.notes,
-        }
-        async with get_supervisor_graph() as graph:
-            final_state = await graph.ainvoke(Command(resume=human_response), config=config)
-        return {"status": "resumed", "final_state_keys": list(final_state.keys())}
+    human_response = {
+        "approved": body.approved,
+        "next_agent": body.next_agent,
+        "notes": body.notes,
+    }
+    try:
+        # Resumes the graph and writes the outcome back to the ticket
+        final_state = await resume_supervisor(str(ticket_id), human_response)
+    except NoPausedRunError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Resume failed: {str(e)}")
+
+    paused_again = bool(final_state.get("__interrupt__")) or bool(final_state.get("hitl_required"))
+    return {
+        "status": "paused" if paused_again else "resumed",
+        "final_state_keys": list(final_state.keys()),
+    }
 
 
 @router.get("/trace/{ticket_id}")
