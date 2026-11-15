@@ -126,6 +126,31 @@ def test_bm25_tenant_filter():
     assert all(doc.metadata["tenant_id"] == "tenant_a" for doc, _ in results_a)
 
 
+def test_bm25_picks_up_index_written_by_another_process(tmp_path):
+    """The API and the Celery worker share one index file; each must see the other's writes."""
+    import os
+    from rag.retrieval.bm25_store import BM25Store
+
+    path = tmp_path / "data" / "shared_bm25.pkl"     # parent dir doesn't exist yet
+    reader = BM25Store(index_path=str(path))          # e.g. the API process
+    assert reader.load() is False                     # nothing on disk yet
+    assert reader.doc_count == 0
+
+    writer = BM25Store(index_path=str(path))          # e.g. the Celery worker
+    writer.build([Document(page_content="nginx 502 bad gateway upstream timeout", metadata={})])
+    assert path.exists()
+    assert not path.with_suffix(".tmp").exists()      # atomic write left no temp file
+
+    reader.reload_if_changed()
+    assert reader.doc_count == 1
+
+    writer.add_documents([Document(page_content="redis maxmemory eviction policy", metadata={})])
+    stat = path.stat()                                # force a distinct mtime on coarse filesystems
+    os.utime(path, (stat.st_atime, stat.st_mtime + 5))
+    reader.reload_if_changed()
+    assert reader.doc_count == 2
+
+
 # ─────────────────────────────────────────────────────────────
 #  RRF fusion tests
 # ─────────────────────────────────────────────────────────────
