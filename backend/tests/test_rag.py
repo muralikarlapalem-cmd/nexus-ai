@@ -51,7 +51,11 @@ def test_chunk_id_is_deterministic():
     from rag.ingestion.chunker import chunk_documents
 
     doc = Document(
-        page_content="Consistent content for determinism test.",
+        # Must be at least min_chunk_size (50) characters, or the chunker drops it
+        page_content=(
+            "Consistent content for the determinism test. Restart the nginx service "
+            "and confirm the health endpoint returns 200."
+        ),
         metadata={"source_type": "document", "file_name": "same.md", "file_path": "/same.md"},
     )
     chunks1 = chunk_documents([doc])
