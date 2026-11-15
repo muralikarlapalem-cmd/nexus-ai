@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, require_agent_or_admin, require_admin
 from app.database import get_async_db
+from app.middleware.security import check_input_safety
 from app.models.ticket import Ticket, TicketStatus
 from app.models.user import User
 from app.schemas.rag import (
@@ -79,6 +80,8 @@ async def ingest_text(
     Useful for quick testing and agent-driven knowledge updates.
     """
     _check_rag_available()
+    # Ingested text is later placed in LLM context (indirect injection)
+    check_input_safety(f"{body.title}\n{body.content}", source="rag_ingest_text")
 
     doc = Document(
         page_content=body.content,
@@ -135,6 +138,9 @@ async def ingest_file(
             docs = load_pdf(tmp_path, metadata=metadata)
         else:
             docs = load_markdown(tmp_path, metadata=metadata)
+
+        for doc in docs:
+            check_input_safety(doc.page_content, source=f"rag_ingest_file:{file.filename}")
 
         result = await ingest_documents(docs, tenant_id=tenant_id)
         logger.info(f"File ingested: {file.filename} by {current_user.username}")
@@ -244,6 +250,7 @@ async def query_knowledge_base(
     Returns the answer and the source documents used.
     """
     _check_rag_available()
+    check_input_safety(body.query, source="rag_query")
 
     result = await rag_query(
         query=body.query,
@@ -272,6 +279,8 @@ async def query_stream(
     The frontend can consume this with EventSource for real-time token display.
     """
     _check_rag_available()
+    # Must run before streaming starts, so the client gets a proper 422
+    check_input_safety(query, source="rag_query_stream")
 
     async def event_generator():
         try:

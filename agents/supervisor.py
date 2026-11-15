@@ -168,6 +168,20 @@ async def run_supervisor(ticket_id: str) -> dict:
     if not ticket:
         return {"error": f"Ticket {ticket_id} not found"}
 
+    # Defence in depth: the API rejects injection attempts at creation, but tickets
+    # created before that check (or written outside the API) could still carry one.
+    # Hand those to a human instead of sending the text to the LLM.
+    from app.middleware.security import detect_prompt_injection
+    if detect_prompt_injection(f"{ticket.title}\n{ticket.description}"):
+        from loguru import logger
+        logger.warning(f"Prompt injection suspected in {ticket.ticket_number}; agent run skipped")
+        async with get_db_context() as db:
+            result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+            t = result.scalar_one_or_none()
+            if t:
+                t.assigned_agent = AssignedAgent.HUMAN
+        return {"error": "Possible prompt injection in ticket text; routed to a human for review."}
+
     # Build initial state
     initial_state: TicketState = {
         "ticket_id": str(ticket.id),

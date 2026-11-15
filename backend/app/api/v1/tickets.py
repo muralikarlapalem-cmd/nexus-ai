@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, require_agent_or_admin
 from app.database import get_async_db
+from app.middleware.security import check_input_safety
 from app.models.audit_log import AuditLog
 from app.models.ticket import Ticket, TicketPriority, TicketStatus, TicketStatusHistory, VALID_STATUS_TRANSITIONS
 from app.models.user import User, UserRole
@@ -56,6 +57,9 @@ async def create_ticket(
     Create a new IT ticket.
     After creation, dispatches async Celery task to trigger the Triage Agent (Phase 3).
     """
+    # Ticket text is fed to every agent's LLM prompt and later ingested into RAG
+    check_input_safety(f"{body.title}\n{body.description}", source="ticket")
+
     # Generate sequential ticket number
     count_result = await db.execute(select(func.count()).select_from(Ticket))
     seq = (count_result.scalar_one() or 0) + 1
@@ -178,6 +182,10 @@ async def update_ticket(
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
+    # Resolution notes are ingested into the RAG knowledge base
+    if body.resolution_notes:
+        check_input_safety(body.resolution_notes, source="resolution_notes")
+
     update_data = body.model_dump(exclude_none=True)
     old_status = ticket.status
 
@@ -228,6 +236,8 @@ async def change_status(
 
     ticket.status = body.status
     if body.note:
+        # The note becomes resolution_notes, which is ingested into RAG
+        check_input_safety(body.note, source="status_note")
         ticket.resolution_notes = body.note
 
     if body.status == TicketStatus.RESOLVED and not ticket.resolved_at:
