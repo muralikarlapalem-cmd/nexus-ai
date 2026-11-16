@@ -47,6 +47,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Qdrant not reachable at startup (will retry on first use): {e}")
 
+    # Load the reranker + embedder in the background, so the first
+    # AI Knowledge Query doesn't wait ~10s for them
+    try:
+        from rag.warmup import start_warm_up
+        start_warm_up()
+    except ImportError as e:
+        logger.warning(f"RAG warm-up skipped: {e}")
+
     yield
 
     await close_db()

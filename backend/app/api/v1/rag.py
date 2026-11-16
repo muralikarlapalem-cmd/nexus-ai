@@ -263,6 +263,7 @@ async def query_knowledge_base(
     return RAGQueryResponse(
         answer=result["answer"],
         sources=[SearchResult(**s) for s in result["sources"]],
+        basis=result["basis"],
         query=result["query"],
         docs_retrieved=result["docs_retrieved"],
     )
@@ -276,7 +277,8 @@ async def query_stream(
 ):
     """
     Streaming RAG query via Server-Sent Events (SSE).
-    The frontend can consume this with EventSource for real-time token display.
+    Events: {"token": ...} pieces, then one {"sources": [...], "basis": ...},
+    then [DONE]; or {"error": ...} if the query failed.
     """
     _check_rag_available()
     # Must run before streaming starts, so the client gets a proper 422
@@ -284,11 +286,12 @@ async def query_stream(
 
     async def event_generator():
         try:
-            async for token in rag_query_stream(query=query, tenant_id=tenant_id):
-                yield f"data: {json.dumps({'token': token})}\n\n"
+            async for event in rag_query_stream(query=query, tenant_id=tenant_id):
+                yield f"data: {json.dumps(event)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            logger.exception(f"Streaming knowledge query failed: {e}")
+            yield f"data: {json.dumps({'error': 'The knowledge query failed. Please try again.'})}\n\n"
 
     return StreamingResponse(
         event_generator(),

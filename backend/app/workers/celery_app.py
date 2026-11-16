@@ -8,6 +8,7 @@ Phase 3: process_ticket_task will invoke the LangGraph supervisor.
 
 import asyncio
 from celery import Celery
+from celery.signals import worker_process_init
 from celery.utils.log import get_task_logger
 from kombu import Queue
 
@@ -70,6 +71,22 @@ celery_app.conf.update(
         },
     },
 )
+
+
+# ── Warm up the RAG models in each worker process ─────────────
+@worker_process_init.connect
+def _warm_up_rag_models(**_):
+    """
+    Start loading the reranker + embedder as soon as a worker process starts,
+    so the first ticket's diagnosis doesn't wait for them. It runs in a
+    background thread: Celery kills a child process whose init takes longer
+    than a few seconds, and the load takes ~10s.
+    """
+    try:
+        from rag.warmup import start_warm_up
+        start_warm_up()
+    except ImportError as e:
+        logger.warning(f"RAG warm-up skipped: {e}")
 
 
 # ── Helper: run async code inside a Celery task ───────────────

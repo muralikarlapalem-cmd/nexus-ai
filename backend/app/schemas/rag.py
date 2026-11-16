@@ -42,9 +42,10 @@ class SearchRequest(BaseModel):
 
 class SearchResult(BaseModel):
     source: str
-    source_type: str
-    score: float
+    source_type: str                # "web" for web pages
+    score: float | None = None      # None for web pages
     excerpt: str
+    url: str | None = None          # set for web pages
 
 
 class SearchResponse(BaseModel):
@@ -67,6 +68,7 @@ class RAGQueryRequest(BaseModel):
 class RAGQueryResponse(BaseModel):
     answer: str
     sources: list[SearchResult]
+    basis: str = "knowledge_base"   # knowledge_base | web | general_knowledge
     query: str
     docs_retrieved: int
 

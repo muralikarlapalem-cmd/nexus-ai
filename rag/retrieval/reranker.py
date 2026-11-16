@@ -14,6 +14,7 @@ Model: cross-encoder/ms-marco-MiniLM-L-6-v2
   - Swap for a larger model if recall matters more than latency
 """
 
+import threading
 from functools import lru_cache
 
 from langchain_core.documents import Document
@@ -21,9 +22,20 @@ from loguru import logger
 
 from rag.config import rag_settings
 
+# Loading takes ~10s (torch + model). The lock stops the startup warm-up
+# (rag/warmup.py) and a query that arrives meanwhile from loading it twice:
+# the query waits for the warm-up's copy instead.
+_load_lock = threading.Lock()
+
+
+def _get_cross_encoder():
+    """Return the cross-encoder, loading it on first use."""
+    with _load_lock:
+        return _load_cross_encoder()
+
 
 @lru_cache(maxsize=1)
-def _get_cross_encoder():
+def _load_cross_encoder():
     """Load the cross-encoder model once and cache it."""
     try:
         from sentence_transformers import CrossEncoder

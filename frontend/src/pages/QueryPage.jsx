@@ -2,6 +2,13 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, BookOpen, ExternalLink } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
+// Where the answer came from (sent by the API as `basis`)
+const BASIS_LABEL = {
+  knowledge_base:    'From the knowledge base:',
+  web:               'Not in the knowledge base — from these web pages:',
+  general_knowledge: 'No internal document or web page was used for this answer. Verify any fix steps before applying them.',
+}
+
 function Message({ msg }) {
   return (
     <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
@@ -16,14 +23,18 @@ function Message({ msg }) {
           : 'bg-nexus-surface border border-nexus-border text-nexus-text rounded-tl-sm'
       }`}>
         <p className="whitespace-pre-wrap">{msg.content}</p>
-        {msg.sources?.length > 0 && (
+        {msg.content && msg.basis && (
           <div className="mt-3 pt-3 border-t border-nexus-border space-y-1">
-            <p className="text-xs text-nexus-muted font-medium mb-2">Sources used:</p>
-            {msg.sources.map((s, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs text-nexus-muted">
-                <BookOpen size={10} className="flex-shrink-0" />
-                <span className="font-mono">{s.source}</span>
-                <span className="text-indigo-400">({(s.score * 100).toFixed(0)}%)</span>
+            <p className="text-xs text-nexus-muted font-medium mb-2">{BASIS_LABEL[msg.basis] || 'Sources:'}</p>
+            {msg.sources?.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-nexus-muted min-w-0">
+                {s.url
+                  ? <ExternalLink size={10} className="flex-shrink-0" />
+                  : <BookOpen size={10} className="flex-shrink-0" />}
+                {s.url
+                  ? <a href={s.url} target="_blank" rel="noopener noreferrer"
+                      className="text-indigo-400 hover:underline truncate">{s.source}</a>
+                  : <span className="font-mono truncate">{s.source}</span>}
               </div>
             ))}
           </div>
@@ -35,7 +46,7 @@ function Message({ msg }) {
 
 export default function QueryPage() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hello! I\'m NEXUS AI. Ask me anything about IT issues, runbooks, or past ticket resolutions. I\'ll search the knowledge base and give you a grounded answer.' }
+    { role: 'assistant', content: 'Hello! I\'m NEXUS AI. Ask me anything about IT issues, error codes, runbooks, or past ticket resolutions. I\'ll search your knowledge base first, then the web if it has no answer, and show you the sources I used.' }
   ])
   const [input, setInput]     = useState('')
   const [loading, setLoading] = useState(false)
@@ -58,38 +69,50 @@ export default function QueryPage() {
     try {
       const url = `/api/v1/rag/query/stream?query=${encodeURIComponent(query)}`
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let accumulated = ''
+      let buffer = ''
+      let streamError = null
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const chunk = decoder.decode(value)
-        const lines  = chunk.split('\n')
+        // An SSE event can be split across network chunks: keep the
+        // unfinished last line in the buffer until the rest arrives
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim()
-            if (data === '[DONE]') break
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.token) {
-                accumulated += parsed.token
-                setMessages(m => m.map((msg, i) =>
-                  i === m.length - 1 ? { ...msg, content: accumulated } : msg
-                ))
-              }
-              if (parsed.error) throw new Error(parsed.error)
-            } catch {}
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+          let parsed
+          try { parsed = JSON.parse(data) } catch { continue }
+          if (parsed.error) streamError = parsed.error
+          if (parsed.basis) {
+            setMessages(m => m.map((msg, i) =>
+              i === m.length - 1 ? { ...msg, sources: parsed.sources, basis: parsed.basis } : msg
+            ))
+          }
+          if (parsed.token) {
+            accumulated += parsed.token
+            setMessages(m => m.map((msg, i) =>
+              i === m.length - 1 ? { ...msg, content: accumulated } : msg
+            ))
           }
         }
       }
+      // An error the server reported mid-stream used to be swallowed,
+      // leaving an empty answer bubble; fall back to the normal endpoint
+      if (streamError || !accumulated) throw new Error(streamError || 'empty answer')
     } catch (err) {
       // Fallback to non-streaming
       try {
         const { data } = await (await import('../api/tickets')).ragApi.query({ query, return_sources: true })
         setMessages(m => m.map((msg, i) =>
-          i === m.length - 1 ? { ...msg, content: data.answer, sources: data.sources } : msg
+          i === m.length - 1 ? { ...msg, content: data.answer, sources: data.sources, basis: data.basis } : msg
         ))
       } catch {
         setMessages(m => m.map((msg, i) =>
