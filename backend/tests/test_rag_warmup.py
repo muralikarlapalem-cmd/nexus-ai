@@ -23,12 +23,13 @@ def test_warm_up_loads_embedder_and_reranker(monkeypatch):
     model = FakeCrossEncoder()
     loaded = []
     monkeypatch.setattr(rag_settings, "reranker_enabled", True)
-    monkeypatch.setattr(embedder, "get_embedder", lambda: loaded.append("embedder"))
+    fake_embedder = type("E", (), {"embed_query": lambda self, text: loaded.append(text)})()
+    monkeypatch.setattr(embedder, "get_embedder", lambda: fake_embedder)
     monkeypatch.setattr(reranker, "_get_cross_encoder", lambda: model)
 
     start_warm_up().join(timeout=5)
 
-    assert loaded == ["embedder"]
+    assert loaded == ["warm up"]           # a real embedding call, not just the client
     assert model.calls == [[("warm up", "warm up")]]   # first prediction done up front
 
 

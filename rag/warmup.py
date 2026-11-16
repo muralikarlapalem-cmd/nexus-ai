@@ -22,7 +22,10 @@ def warm_up_models() -> None:
     started = time.perf_counter()
     try:
         from rag.ingestion.embedder import get_embedder
-        get_embedder()
+        # One real (tiny) call: the first embedding downloads the tokenizer
+        # file into /tmp (lost on every container re-create) and opens the
+        # connection to OpenAI, which made the first query ~14s slower
+        get_embedder().embed_query("warm up")
 
         if rag_settings.reranker_enabled:
             from rag.retrieval.reranker import _get_cross_encoder

@@ -13,7 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# CPU-only torch first (~180 MB). The reranker runs on the CPU; without this,
+# sentence-transformers pulls the CUDA build (several GB of GPU libraries)
+# and a rebuild took over an hour on a slow connection.
 RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.0 && \
     pip install --no-cache-dir -r requirements.txt
 
 
@@ -33,6 +37,15 @@ COPY --from=deps /usr/local/bin /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Download the reranker model into the image (~90 MB). Otherwise it was
+# downloaded from Hugging Face during the first query after every container
+# re-create, which made that query take ~30s longer. Must match
+# RERANKER_MODEL / rag_settings.reranker_model.
+ARG RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+USER nexus
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('${RERANKER_MODEL}', device='cpu')"
+USER root
 
 # Copy application code
 COPY . .
