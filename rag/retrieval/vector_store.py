@@ -10,6 +10,7 @@ Responsibilities:
   - Collection stats / health
 """
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -29,20 +30,31 @@ from rag.config import rag_settings
 
 
 # ─────────────────────────────────────────────────────────────
-#  Singleton async client
+#  Async client, one per event loop
 # ─────────────────────────────────────────────────────────────
+# The async client's connections belong to the event loop that opened them.
+# The API runs on one long-lived loop, but each Celery task runs on a fresh
+# loop that is closed afterwards (see run_async). Reusing one global client
+# made every RAG search after a worker's first task fail with
+# "Event loop is closed", so a new client is created whenever the loop changes.
 
 _client: AsyncQdrantClient | None = None
+_client_loop: asyncio.AbstractEventLoop | None = None
 
 
 def get_qdrant_client() -> AsyncQdrantClient:
-    global _client
-    if _client is None:
+    global _client, _client_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _client is None or _client_loop is not loop:
         _client = AsyncQdrantClient(
             url=rag_settings.qdrant_url,
             api_key=rag_settings.qdrant_api_key or None,
             timeout=30,
         )
+        _client_loop = loop
     return _client
 
 

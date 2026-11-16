@@ -73,7 +73,6 @@ pydantic-settings==2.6.1
 # ── Phase 3: Agents + Orchestration ──────────────────────────
 langgraph==0.2.56
 langsmith>=0.1.17,<0.2.0
-duckduckgo-search==7.1.0
 langgraph-checkpoint-redis
 
 # ── Phase 5: Tracing + Evals + Security ──────────────────────

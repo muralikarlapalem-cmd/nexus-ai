@@ -2,8 +2,10 @@
 NEXUS AI · agents/diagnosis_agent.py
 Diagnosis Agent — RAG-powered root cause analysis.
 
-Uses: rag_search, web_search, check_sla_status
-Produces: structured diagnosis with step-by-step resolution plan
+Uses: knowledge base search, web search (only when the knowledge base has no
+good match), check_sla_status
+Produces: structured diagnosis with step-by-step resolution plan, plus the
+internal documents and web pages it was based on
 """
 
 import json
@@ -11,8 +13,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.state import TicketState
-from agents.tools.rag_tool import rag_search
-from agents.tools.search_tools import web_search
+from agents.tools.rag_tool import format_kb_results, search_knowledge_base
+from agents.tools.search_tools import WebSearchResult, format_web_results, search_web
 from agents.tools.ticket_tools import check_sla_status
 from rag.config import rag_settings
 
@@ -39,7 +41,22 @@ Respond with ONLY valid JSON in this schema:
   "references": ["source names used"]
 }
 
-Be specific. Include actual commands where relevant. Base your answer on the KB context provided."""
+Be specific. Include actual commands where relevant.
+Prefer the knowledge base results. Use web results ([W1], [W2], ...) only when they are relevant,
+and list the web pages you relied on in "references" by their URL.
+If neither source has relevant information, say so in "evidence", base the answer on general
+IT knowledge, keep "confidence" at 0.5 or lower, and do not invent document names or URLs."""
+
+
+def _sources_text(kb_sources: list[str], web_sources: list[dict]) -> str:
+    """The 'Sources' block appended to the resolution notes shown on the ticket."""
+    if not kb_sources and not web_sources:
+        return ("Sources: none. No matching internal document or web page was found; "
+                "this answer is based on the AI model's general IT knowledge. Verify before applying.")
+    lines = ["Sources:"]
+    lines += [f"- Knowledge base: {s}" for s in kb_sources]
+    lines += [f"- Web: {w['title']} - {w['url']}" for w in web_sources]
+    return "\n".join(lines)
 
 
 async def diagnosis_agent(state: TicketState) -> TicketState:
@@ -55,19 +72,19 @@ async def diagnosis_agent(state: TicketState) -> TicketState:
     keywords = triage.get("keywords", [])
 
     # ── Tool calls ────────────────────────────────────────────
-    # 1. RAG search using triage keywords
+    # 1. Knowledge base search using triage keywords
     search_query = f"{state['title']} {' '.join(keywords[:3])} {category}"
-    kb_context = await rag_search.ainvoke({
-        "query": search_query,
-        "category_filter": category,
-        "top_k": 3,
-    })
+    kb = await search_knowledge_base(search_query, category_filter=category, top_k=3)
+    kb_context = format_kb_results(kb)
 
-    # 2. Web search for additional context
-    web_context = await web_search.ainvoke({
-        "query": f"{state['title']} solution fix {category}",
-        "max_results": 2,
-    })
+    # 2. Web search, only when the knowledge base has no good match
+    web: WebSearchResult | None = None
+    if kb.is_strong:
+        web_context = "Not searched: the knowledge base has a good match for this ticket."
+    else:
+        web = await search_web(f"{state['title']} {' '.join(keywords[:3])} fix", max_results=3)
+        web_context = format_web_results(web)
+    web_sources = [{"title": r["title"], "url": r["url"]} for r in (web.results if web else [])]
 
     # 3. SLA check
     sla_status = await check_sla_status.ainvoke({"ticket_id": state["ticket_id"]})
@@ -118,14 +135,48 @@ Produce your diagnosis JSON now."""
             "references": [],
         }
 
+    # Record what the diagnosis was based on from the actual search results,
+    # not from the LLM's own "references" (which it can make up)
+    if kb.error:
+        kb_status = "error"
+    elif kb.is_strong:
+        kb_status = "match"
+    else:
+        kb_status = "weak" if kb.docs else "none"
+    if web is None:
+        web_status = "not_needed"
+    elif not web.ok:
+        web_status = "error"
+    else:
+        web_status = "results" if web.results else "none"
+
+    kb_sources = kb.sources if kb_status == "match" else []
+    diagnosis_result["knowledge_sources"] = kb_sources
+    diagnosis_result["web_sources"] = web_sources
+    diagnosis_result["search_summary"] = {
+        "knowledge_base": kb_status,
+        "knowledge_base_top_score": round(kb.top_score, 3) if kb.top_score is not None else None,
+        "web": web_status,
+        "web_error": web.error if web and not web.ok else None,
+    }
+    if kb_sources:
+        diagnosis_result["answer_basis"] = "knowledge_base"
+    elif web_sources:
+        diagnosis_result["answer_basis"] = "web"
+    else:
+        diagnosis_result["answer_basis"] = "model_general_knowledge"
+
     # Build human-readable resolution notes
     steps = diagnosis_result.get("resolution_steps", [])
     resolution_text = f"Root Cause: {diagnosis_result.get('root_cause', '')}\n\n"
     if steps:
         resolution_text += "Resolution Steps:\n"
         for s in steps:
-            cmd = f"\n  Command: `{s['command']}`" if s.get("command") else ""
-            resolution_text += f"{s['step']}. {s['action']}{cmd}\n"
+            command = str(s.get("command") or "").strip()
+            has_cmd = command.lower() not in ("", "n/a", "na", "none", "-", "null")
+            cmd = f"\n  Command: `{command}`" if has_cmd else ""
+            resolution_text += f"{s.get('step', '-')}. {s.get('action', '')}{cmd}\n"
+    resolution_text += "\n" + _sources_text(kb_sources, web_sources)
 
     escalation_needed = diagnosis_result.get("escalation_needed", False)
 

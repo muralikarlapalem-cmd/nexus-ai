@@ -67,6 +67,7 @@ git clone https://github.com/your-username/nexus-ai
 cd nexus-ai
 cp .env.example .env
 # Edit .env: at minimum set the passwords, JWT_SECRET_KEY and OPENAI_API_KEY
+# Optional: TAVILY_API_KEY enables web search when the knowledge base has no answer
 ```
 
 ### 2. Start all services
@@ -247,7 +248,7 @@ or `cancelled` from most non-terminal states. Notably, **a resolved ticket canno
 |------|-------|---------------|
 | `triage_agent` | `check_sla_status` | Category, validated priority, keywords, affected components, confidence. Next is `security_agent` if security keywords are present, else `diagnosis_agent`; `human_review` on data-loss risk, outage > 1h, breach, or confidence < 0.4 |
 | `security_agent` | `cve_lookup` (NVD API), `rag_search`, regex PII detection | Threat level, CVEs, PII types, remediation. Next is `human_review` if critical / escalate / containment, else `diagnosis_agent` |
-| `diagnosis_agent` | `rag_search`, `web_search` (DuckDuckGo), `check_sla_status` | Root cause, numbered resolution steps with commands, verification steps. Next is `human_review` if escalation is needed, else `knowledge_agent` |
+| `diagnosis_agent` | knowledge base search, Tavily web search (only when the knowledge base has no good match: no results, a search error, or best reranker score below `KB_MIN_RELEVANCE`, default 0), `check_sla_status` | Root cause, numbered resolution steps with commands, verification steps, and the sources used (`knowledge_sources`, `web_sources` with URLs, `answer_basis`); the resolution notes end with a **Sources** list. Next is `human_review` if escalation is needed, else `knowledge_agent` |
 | `knowledge_agent` | `generate_runbook`, `update_ticket_field` | If diagnosis confidence ≥ 0.6, generates a runbook and ingests it into RAG; writes resolution to the ticket. Next: `END` |
 | `human_review` | — | Pauses with `interrupt()`. On resume: continues to `next_agent` if approved, else `END` |
 | `guard` | — | Forces `END` after 8 iterations |

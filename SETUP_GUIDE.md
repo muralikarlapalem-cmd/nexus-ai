@@ -98,6 +98,9 @@ JWT_SECRET_KEY=your-32-char-secret-here-make-it-random
 # Required for Phase 3+ (agents + RAG generation):
 OPENAI_API_KEY=sk-your-openai-key-here
 
+# Optional: web search for tickets the knowledge base can't answer (https://tavily.com)
+TAVILY_API_KEY=tvly-your-key-here
+
 # Optional (Phase 5 tracing):
 LANGSMITH_API_KEY=ls__your-key-here
 LANGCHAIN_TRACING_V2=true

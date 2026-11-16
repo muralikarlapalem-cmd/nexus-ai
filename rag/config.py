@@ -57,8 +57,17 @@ class RAGSettings(BaseSettings):
     llm_temperature: float = 0.0
     max_tokens: int = 1024
 
+    # ── Web search fallback (Diagnosis Agent) ─────────────────
+    # The web is searched only when the knowledge base has no good match:
+    # no results, a search error, or a best reranker score below kb_min_relevance.
+    # ms-marco cross-encoder scores: real matches are > 0, unrelated docs ≈ -5 to -11.
+    kb_min_relevance: float = 0.0
+    web_search_max_results: int = 3
+    web_search_timeout: float = 15.0
+
     # ── Keys (inherited from main .env) ──────────────────────
     openai_api_key: str = ""
+    tavily_api_key: str = ""           # empty = web search disabled
 
 
 @lru_cache

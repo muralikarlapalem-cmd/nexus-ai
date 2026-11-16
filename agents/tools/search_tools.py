@@ -1,12 +1,89 @@
 """
 NEXUS AI · agents/tools/search_tools.py
 External search tools for agents:
-  - web_search: DuckDuckGo search (no API key needed)
+  - web_search: Tavily web search (needs TAVILY_API_KEY), returns results with URLs
   - cve_lookup: NVD CVE database lookup
   - system_log_scan: Mock log scanner (replace with real log source)
 """
 
+from dataclasses import dataclass, field
+
+import httpx
 from langchain_core.tools import tool
+from loguru import logger
+
+from rag.config import rag_settings
+
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+
+
+@dataclass
+class WebSearchResult:
+    """Outcome of a web search. `error` is set (and `results` empty) when it failed."""
+    results: list[dict] = field(default_factory=list)   # [{title, url, content}]
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+
+async def search_web(query: str, max_results: int | None = None) -> WebSearchResult:
+    """
+    Search the web with Tavily. Never raises: failures come back as `error`,
+    so callers can tell the LLM plainly that web results are unavailable.
+    """
+    if not rag_settings.tavily_api_key:
+        return WebSearchResult(error="web search is not configured (TAVILY_API_KEY is empty)")
+
+    n = max(1, min(max_results or rag_settings.web_search_max_results, 5))
+    payload = {
+        "query": query[:400],          # Tavily rejects very long queries
+        "max_results": n,
+        "search_depth": "basic",
+        "include_answer": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=rag_settings.web_search_timeout) as client:
+            resp = await client.post(
+                TAVILY_SEARCH_URL,
+                json=payload,
+                headers={"Authorization": f"Bearer {rag_settings.tavily_api_key}"},
+            )
+        if resp.status_code != 200:
+            detail = resp.text[:200].replace("\n", " ")
+            logger.warning(f"Tavily search failed: HTTP {resp.status_code} {detail}")
+            return WebSearchResult(error=f"web search failed (HTTP {resp.status_code})")
+        items = resp.json().get("results", [])
+    except httpx.TimeoutException:
+        logger.warning("Tavily search timed out")
+        return WebSearchResult(error="web search timed out")
+    except Exception as e:
+        logger.warning(f"Tavily search error: {e}")
+        return WebSearchResult(error=f"web search error: {type(e).__name__}")
+
+    results = [
+        {
+            "title": (r.get("title") or r.get("url") or "Untitled").strip(),
+            "url": r.get("url", ""),
+            "content": (r.get("content") or "").strip()[:700],
+        }
+        for r in items
+        if r.get("url")
+    ]
+    return WebSearchResult(results=results)
+
+
+def format_web_results(result: WebSearchResult) -> str:
+    """Text for an LLM prompt; failures are stated plainly, never passed off as results."""
+    if not result.ok:
+        return f"WEB SEARCH UNAVAILABLE ({result.error}). There are no web results; do not cite web sources."
+    if not result.results:
+        return "Web search returned no results."
+    return "\n\n".join(
+        f"[W{i}] {r['title']}\nURL: {r['url']}\n{r['content']}"
+        for i, r in enumerate(result.results, 1)
+    )
 
 
 @tool
@@ -19,13 +96,7 @@ async def web_search(query: str, max_results: int = 3) -> str:
         query: Technical search query (e.g. 'PostgreSQL max_connections error fix')
         max_results: Number of results (1-5)
     """
-    try:
-        from langchain_community.tools import DuckDuckGoSearchRun
-        search = DuckDuckGoSearchRun()
-        result = search.run(query)
-        return result[:2000] if result else "No web results found."
-    except Exception as e:
-        return f"Web search unavailable: {str(e)}"
+    return format_web_results(await search_web(query, max_results))
 
 
 @tool
@@ -37,8 +108,6 @@ async def cve_lookup(keyword: str) -> str:
     Args:
         keyword: Software name or vulnerability keyword (e.g. 'OpenSSL', 'Apache Log4j')
     """
-    import httpx
-
     try:
         url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
         params = {"keywordSearch": keyword, "resultsPerPage": 5}
