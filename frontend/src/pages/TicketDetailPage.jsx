@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ticketApi, agentApi } from '../api/tickets'
@@ -38,6 +38,60 @@ function AgentMessage({ msg }) {
   )
 }
 
+// Shown while a run is paused for a person. Approve resolves the ticket with the
+// reviewer's notes; reject stops the agents and leaves the ticket with a human.
+function ReviewPanel({ reason, onSubmit, isPending }) {
+  const [notes, setNotes] = useState('')
+  const hasNotes = notes.trim().length > 0
+  // next_agent "END": no further agents run after the review
+  const submit = (approved) => onSubmit({ approved, next_agent: 'END', notes: notes.trim() })
+
+  return (
+    <div className="mb-6 rounded-xl border border-orange-500/50 bg-orange-900/10 p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <AlertTriangle size={14} className="text-orange-400" />
+        <h2 className="text-sm font-semibold text-orange-300">Your review is needed</h2>
+      </div>
+      <p className="text-xs text-nexus-muted mb-4">
+        The agents paused and will not go further.
+        {reason ? <> Reason: <span className="text-orange-200">{reason}</span>.</> : null}
+        {' '}Their findings so far are shown below.
+      </p>
+
+      <label className="block text-xs text-nexus-muted mb-1" htmlFor="review-notes">Review notes (required)</label>
+      <textarea
+        id="review-notes"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={3}
+        placeholder="What you checked and decided. Saved as the ticket's resolution."
+        className="w-full bg-nexus-bg border border-nexus-border rounded-lg px-3 py-2 text-sm text-white placeholder:text-nexus-muted focus:outline-none focus:border-orange-500/60 mb-3"
+      />
+
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        <button
+          onClick={() => submit(false)}
+          disabled={isPending || !hasNotes}
+          title={hasNotes ? undefined : 'Add your review notes first'}
+          className="flex items-center gap-2 border border-red-900/60 text-red-400 hover:bg-red-900/20 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg px-4 py-2 text-sm font-medium">
+          Reject
+        </button>
+        <button
+          onClick={() => submit(true)}
+          disabled={isPending || !hasNotes}
+          title={hasNotes ? undefined : 'Add your review notes first'}
+          className="flex items-center gap-2 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:hover:bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-medium">
+          {isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+          Approve and resolve
+        </button>
+      </div>
+      <p className="text-xs text-nexus-muted mt-3">
+        Approve closes the ticket as resolved with your notes. Reject keeps it open and assigned to a human.
+      </p>
+    </div>
+  )
+}
+
 export default function TicketDetailPage() {
   const { id } = useParams()
   const qc = useQueryClient()
@@ -72,6 +126,19 @@ export default function TicketDetailPage() {
     },
   })
 
+  const reviewMutation = useMutation({
+    mutationFn: (decision) => agentApi.resume(id, decision),
+    // Resolve and reject are finished by the time the API answers
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+      qc.invalidateQueries({ queryKey: ['trace', id] })
+    },
+    onError: (err) => {
+      const detail = err?.response?.data?.detail
+      alert(typeof detail === 'string' ? detail : 'Failed to submit the review')
+    },
+  })
+
   // When the run ends the trace polling stops; fetch it once more for the last messages
   useEffect(() => {
     qc.invalidateQueries({ queryKey: ['trace', id] })
@@ -87,14 +154,20 @@ export default function TicketDetailPage() {
 
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
+  const canReview = user?.role === 'admin' || user?.role === 'agent'
   const allowedNextStatuses = VALID_STATUS_TRANSITIONS[ticket?.status] || []
 
   // Where the run is right now. The trace endpoint reports the graph node that is executing.
   const inProgress = ticket?.status === 'in_progress'
   const currentNode = inProgress ? trace?.current_node?.[0] : undefined
-  const withHuman = inProgress && (currentNode === 'human_review' || ticket?.assigned_agent === 'human')
+  // A paused run leaves the ticket assigned to a human. Submitting a review hands it back
+  // to the agents at once, so "paused and with a human" means a review is still owed.
+  const withHuman = inProgress && ticket?.assigned_agent === 'human'
+  const awaitingReview = withHuman && currentNode === 'human_review'
   let liveLabel = null
-  if (withHuman) liveLabel = 'Waiting for human review'
+  if (awaitingReview) liveLabel = 'Waiting for human review'
+  else if (withHuman) liveLabel = 'Handed to a human — the agents have stopped'
+  else if (currentNode === 'human_review') liveLabel = 'Review submitted — resuming…'
   else if (currentNode === '__start__') liveLabel = 'Starting…'
   else if (currentNode) liveLabel = `${NODE_LABELS[currentNode] || currentNode} agent is working…`
   else if (inProgress) liveLabel = trace?.trace?.length ? 'Finishing up…' : 'Queued — waiting for a worker…'
@@ -153,12 +226,28 @@ export default function TicketDetailPage() {
               : <Loader2 size={14} className="text-indigo-400 animate-spin" />}
             <p className={`text-sm font-medium ${withHuman ? 'text-orange-300' : 'text-indigo-200'}`}>{liveLabel}</p>
           </div>
+          {withHuman && !awaitingReview && (
+            <p className="text-xs text-nexus-muted mb-3">
+              Nothing more will run automatically. An admin can mark the ticket resolved or closed with “Change status…” above.
+            </p>
+          )}
+          {awaitingReview && !canReview && (
+            <p className="text-xs text-nexus-muted mb-3">A support agent or admin needs to review this ticket before the agents continue.</p>
+          )}
           <AgentPipeline
             counts={currentNode ? { [currentNode]: 1 } : withHuman ? { human_review: 1 } : {}}
             showEnds={false}
             showHuman={false}
           />
         </div>
+      )}
+
+      {awaitingReview && canReview && (
+        <ReviewPanel
+          reason={trace?.hitl_reason}
+          onSubmit={(decision) => reviewMutation.mutate(decision)}
+          isPending={reviewMutation.isPending}
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -210,7 +299,7 @@ export default function TicketDetailPage() {
               </p>
             )}
           </div>
-          {trace?.hitl_required && (
+          {awaitingReview && (
             <div className="mt-4 p-3 bg-orange-900/20 border border-orange-900/40 rounded-lg">
               <p className="text-xs text-orange-400 font-medium flex items-center gap-1.5">
                 <AlertTriangle size={12} /> Human review required

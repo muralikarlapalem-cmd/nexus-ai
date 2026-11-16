@@ -249,6 +249,19 @@ async def resume_supervisor(ticket_id: str, human_response: dict) -> dict:
     return final_state
 
 
+async def hand_to_human(ticket_id: str) -> None:
+    """Assign the ticket to a human, e.g. when a resumed run fails part-way."""
+    from app.database import get_db_context
+    from app.models.ticket import AssignedAgent, Ticket
+    from sqlalchemy import select
+
+    async with get_db_context() as db:
+        result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+        t = result.scalar_one_or_none()
+        if t:
+            t.assigned_agent = AssignedAgent.HUMAN
+
+
 async def persist_final_state(
     ticket_id: str, final_state: dict, human_rejected: bool = False
 ) -> None:

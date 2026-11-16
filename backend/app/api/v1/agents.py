@@ -3,7 +3,7 @@ NEXUS AI · app/api/v1/agents.py
 Agent orchestration endpoints:
   POST /agents/run/{ticket_id}     — trigger supervisor for a ticket
   GET  /agents/status/{ticket_id}  — get current graph state
-  POST /agents/resume/{ticket_id}  — resume after HITL checkpoint
+  POST /agents/resume/{ticket_id}  — submit a human review: resolve, reject, or send back to an agent
   GET  /agents/trace/{ticket_id}   — return message trace for UI
   GET  /agents/info                — which models the agents use (from config)
   GET  /agents/active              — in-progress tickets with each run's live step
@@ -11,6 +11,7 @@ Agent orchestration endpoints:
 
 from logging import config
 import uuid
+from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from langgraph import graph
 from pydantic import BaseModel
@@ -55,7 +56,11 @@ def live_step(next_nodes: tuple | None, has_checkpoint: bool, assigned_agent: As
 
 class HITLResumeRequest(BaseModel):
     approved: bool
-    next_agent: str = "diagnosis_agent"
+    # What happens when approved:
+    #   "END"      — the reviewer's notes resolve the ticket; no further agents run
+    #   an agent   — the run continues with that agent on the worker
+    # Restricted to real graph nodes: an unknown name would crash the run at the routing step.
+    next_agent: Literal["END", "diagnosis_agent", "security_agent", "knowledge_agent"] = "diagnosis_agent"
     notes: str = ""
 
 
@@ -217,34 +222,72 @@ async def resume_after_hitl(
     current_user: User = Depends(require_agent_or_admin),
 ):
     """
-    Resume a paused graph after human review (HITL checkpoint).
-    Supply approved=true and optionally override the next_agent.
+    Submit the human review for a run paused at the HITL checkpoint.
+
+      approved=true,  next_agent="END"   → ticket resolved with the review notes
+      approved=true,  next_agent=<agent> → run continues with that agent
+      approved=false                     → agents stop, ticket stays with a human
+
+    Resolving and rejecting involve no agent work, so they finish before this
+    returns. Continuing with an agent can take minutes, so that is queued for
+    the Celery worker; follow it with /agents/trace or /agents/active.
     """
+    resolving = body.approved and body.next_agent == "END"
+    if resolving and not body.notes.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Review notes are required to resolve the ticket: they become its resolution.",
+        )
+
     result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    from agents.supervisor import NoPausedRunError, resume_supervisor
+    try:
+        async with get_supervisor_graph() as graph:
+            snapshot = await graph.aget_state({"configurable": {"thread_id": str(ticket_id)}})
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not read the agent run: {e}")
+
+    # A paused run always leaves the ticket with a human. Once a review is
+    # submitted the ticket goes back to the agents (below), so a second
+    # submission for the same pause is refused here.
+    waiting = bool(snapshot and snapshot.next and snapshot.next[0] == "human_review")
+    if not waiting or ticket.assigned_agent != AssignedAgent.HUMAN:
+        raise HTTPException(status_code=409, detail="No agent run is waiting for human review on this ticket")
 
     human_response = {
         "approved": body.approved,
         "next_agent": body.next_agent,
-        "notes": body.notes,
+        "notes": body.notes.strip(),
     }
-    try:
-        # Resumes the graph and writes the outcome back to the ticket
-        final_state = await resume_supervisor(str(ticket_id), human_response)
-    except NoPausedRunError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Resume failed: {str(e)}")
 
-    paused_again = bool(final_state.get("__interrupt__")) or bool(final_state.get("hitl_required"))
-    return {
-        "status": "paused" if paused_again else "resumed",
-        "final_state_keys": list(final_state.keys()),
-    }
+    if resolving or not body.approved:
+        # No agent runs: finish the graph here and save the outcome to the ticket
+        from agents.supervisor import NoPausedRunError, resume_supervisor
+        await db.commit()       # release this session's hold on the ticket before the outcome is written
+        try:
+            await resume_supervisor(str(ticket_id), human_response)
+        except NoPausedRunError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Could not record the review: {e}")
+        return {"status": "resolved" if resolving else "rejected", "approved": body.approved}
+
+    ticket.assigned_agent = AssignedAgent(body.next_agent)
+    await db.commit()
+
+    from app.workers.celery_app import resume_ticket_task
+    try:
+        task = resume_ticket_task.delay(str(ticket_id), human_response)
+    except Exception as e:
+        # Nothing was queued (broker unreachable): the ticket is still waiting for review
+        ticket.assigned_agent = AssignedAgent.HUMAN
+        await db.commit()
+        raise HTTPException(status_code=503, detail=f"Could not queue the review: {e}")
+
+    return {"status": "dispatched", "approved": body.approved, "task_id": task.id}
 
 
 @router.get("/trace/{ticket_id}")
@@ -279,6 +322,7 @@ async def get_agent_trace(
             "current_node": state.next,
             "iteration": state.values.get("iteration", 0),
             "hitl_required": state.values.get("hitl_required", False),
+            "hitl_reason": state.values.get("hitl_reason") or "",
         }
     except Exception as e:
         return {"trace": [], "error": str(e)}

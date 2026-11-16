@@ -165,6 +165,30 @@ def process_ticket_task(ticket_id: str):
 
 
 @celery_app.task(
+    name="app.workers.celery_app.resume_ticket_task",
+    queue="agents",
+)
+def resume_ticket_task(ticket_id: str, human_response: dict):
+    """
+    Resume a run paused for human review, with the reviewer's decision:
+    {"approved": bool, "next_agent": str, "notes": str}.
+    """
+    from agents.supervisor import NoPausedRunError, hand_to_human, resume_supervisor
+
+    logger.info(f"resume_ticket_task: ticket_id={ticket_id} approved={human_response.get('approved')}")
+    try:
+        run_async(resume_supervisor(ticket_id, human_response))
+    except NoPausedRunError as e:
+        logger.warning(str(e))
+        run_async(hand_to_human(ticket_id))
+    except Exception:
+        # The agents failed after the review: give the ticket back to a human
+        # rather than leave it looking as if an agent still has it.
+        run_async(hand_to_human(ticket_id))
+        raise
+
+
+@celery_app.task(
     name="app.workers.celery_app.index_ticket_for_rag",
     queue="rag",
     max_retries=3,
