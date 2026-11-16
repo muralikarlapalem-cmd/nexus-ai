@@ -102,6 +102,7 @@
     <div>LLM</div><div>OpenAI chat via <code>langchain_openai</code>; config default <code>gpt-4o</code>, local <code>.env</code> uses <code>gpt-4o-mini</code>; temperature 0</div>
     <div>Retrieval</div><div>Qdrant 1.12 (dense) + rank_bm25 (sparse) → RRF (k=60) → <code>ms-marco-MiniLM-L-6-v2</code> cross-encoder</div>
     <div>Embeddings</div><div>OpenAI <code>text-embedding-3-small</code> (1536-d, default) or Ollama <code>nomic-embed-text</code> (768-d)</div>
+    <div>Web search</div><div>Tavily (<code>TAVILY_API_KEY</code>), used by the Diagnosis agent only when the knowledge base has no good match</div>
     <div>Data</div><div>PostgreSQL 16: users, tickets, ticket_status_history, audit_logs (Keycloak shares the database)</div>
     <div>Identity</div><div>Keycloak 24 OIDC with JWKS verification and user auto-provisioning; local HS256 JWT as dev fallback</div>
     <div>Frontend</div><div>React + Vite + Tailwind, React Query, Zustand; port 5173, proxies <code>/api</code> to port 8000</div>
@@ -187,7 +188,7 @@
     <text x="262" y="240" font-weight="700" font-size="12" fill="#7c3aad">LangGraph supervisor</text>
     <text x="410" y="240" fill="#5b6672" font-size="9.5">runs inside the Celery worker</text>
     <text x="262" y="256" font-size="9.5">injection pre-check → Triage → Security? → Diagnosis → Knowledge · HITL · guard</text>
-    <text x="262" y="270" font-size="9.5">Tools: rag_search · web_search · cve_lookup · check_sla_status · update_ticket · runbook</text>
+    <text x="262" y="270" font-size="9.5">Tools: rag_search · web_search (Tavily) · cve_lookup · check_sla_status · update_ticket · runbook</text>
 
     <!-- RAG -->
     <rect x="250" y="320" width="420" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
@@ -347,7 +348,7 @@
       <text x="415" y="248">category · priority · next</text>
       <text x="415" y="276">8  checkpoint after every node</text>
       <text x="415" y="306">9  Security (if flagged): NVD, PII scan</text>
-      <text x="415" y="336">10 Diagnosis: rag_search + web_search</text>
+      <text x="415" y="336">10 Diagnosis: RAG; web (Tavily) only if no good match</text>
       <text x="415" y="360" fill="#5b6672">Knowledge: runbook → RAG ingest</text>
       <text x="415" y="396">11 interrupt() · state saved</text>
       <text x="66" y="420">12 POST /agents/resume</text>
@@ -399,7 +400,7 @@
       <rect x="300" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
       <text x="310" y="53" font-weight="700" font-size="11" fill="#7c3aad">Diagnosis</text>
       <text x="310" y="68">root cause · fix steps</text>
-      <text x="310" y="80" fill="#5b6672" font-size="8.5">rag_search · web_search · SLA</text>
+      <text x="310" y="80" fill="#5b6672" font-size="8.5">RAG · Tavily if no match · SLA</text>
 
       <rect x="490" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
       <text x="500" y="53" font-weight="700" font-size="11" fill="#7c3aad">Knowledge</text>
@@ -456,7 +457,7 @@
     <tr><th style="width:13%">Agent</th><th style="width:30%">Inputs and tools</th><th style="width:32%">Output (JSON written to state)</th><th>Routing</th></tr>
     <tr><td><b>Triage</b></td><td>Title, description, user's category and priority, SLA status</td><td>category, priority (+ override reason), root-cause hypothesis, components, keywords, urgency signals, confidence</td><td>security / diagnosis, or human review</td></tr>
     <tr><td><b>Security</b></td><td>NVD CVE lookup on triage keywords, RAG search in <i>security</i>, regex PII scan (email, phone, IP, card)</td><td>threat level and type, CVEs, PII types, immediate actions, remediation, compliance impact</td><td>human review if critical, escalate or containment; else diagnosis</td></tr>
-    <tr><td><b>Diagnosis</b></td><td>RAG search (top 3, category filter), DuckDuckGo search, SLA status, triage hypothesis</td><td>root cause, confidence, evidence, numbered steps with commands, verification, prevention, ETA</td><td>human review if escalation needed; else knowledge</td></tr>
+    <tr><td><b>Diagnosis</b></td><td>RAG search (top 3, category filter); Tavily web search (3 pages) only when RAG has no good match (no results, an error, or best rerank score &lt; <code>kb_min_relevance</code>); SLA status, triage hypothesis</td><td>root cause, confidence, evidence, numbered steps with commands, verification, prevention, ETA; <code>knowledge_sources</code>, <code>web_sources</code> (URLs) and <code>answer_basis</code>, with a Sources list in the resolution notes</td><td>human review if escalation needed; else knowledge</td></tr>
     <tr><td><b>Knowledge</b></td><td>Diagnosis result</td><td>If confidence ≥ 0.6: generated runbook ingested into RAG as <code>auto_&lt;ticket&gt;.md</code>; resolution and diagnosis saved to ticket</td><td>END</td></tr>
   </table>
   <p>Every agent uses temperature 0 and asks for JSON only. If parsing fails, it extracts the first <code>{…}</code> block, and if that fails
@@ -515,6 +516,8 @@
     <tr><td><code>rerank_top_k</code></td><td>3</td><td>Passages kept for the LLM</td></tr>
     <tr><td><code>reranker_model</code></td><td>ms-marco-MiniLM-L-6-v2</td><td>Runs locally on CPU; falls back to fusion order if it fails to load</td></tr>
     <tr><td><code>llm_model</code> / <code>max_tokens</code></td><td>gpt-4o / 1024</td><td>Generation model (overridden by <code>LLM_MODEL</code>)</td></tr>
+    <tr><td><code>kb_min_relevance</code></td><td>0.0</td><td>Best rerank score below which the Diagnosis agent searches the web (real matches score &gt; 0, unrelated ≈ −5 to −11)</td></tr>
+    <tr><td><code>tavily_api_key</code> / <code>web_search_max_results</code></td><td>empty / 3</td><td>Web search; empty key disables it</td></tr>
   </table>
 
   <div class="note"><b>Changing the embedding provider</b> changes the vector size, so the Qdrant collection must be deleted
@@ -583,7 +586,8 @@
   <h2>8. Background processing</h2>
   <p>Celery is configured for long, reliable tasks: messages are acknowledged only after a task finishes (<code>acks_late</code>), re-queued
   if a worker dies, and handed out one at a time (<code>prefetch_multiplier=1</code>). Tasks wrap async code in a fresh event loop and dispose
-  of the database pool afterwards, so asyncpg connections never leak across loops.</p>
+  of the database pool afterwards, so asyncpg connections never leak across loops. The Qdrant async client is likewise recreated
+  whenever the event loop changes.</p>
   <table>
     <tr><th style="width:33%">Task</th><th style="width:12%">Queue</th><th style="width:20%">Trigger</th><th>What it does</th></tr>
     <tr><td><code>process_ticket_task</code></td><td>agents</td><td>POST /agents/run</td><td>Runs the LangGraph supervisor for one ticket (3 retries, 30 s apart)</td></tr>
@@ -661,7 +665,12 @@
   <p><b>Self-registration accepted any role.</b> <code>/auth/register</code> now always creates a <code>user</code> and rejects a <code>role</code>
   field; the first admin is promoted with the <code>make-admin</code> CLI command, which writes an audit-log entry.</p>
   <p><b>CI eval gate used the wrong key.</b> The workflow now passes <code>OPENAI_API_KEY</code>, which the code actually reads.</p>
-  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite (40 tests) passes.</p>
+  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (61 tests as of 16 Nov 2026).</p>
+  <p><b>Web search blocked; sources not recorded</b> (commit <code>e426043</code>). The DuckDuckGo tool was rate-limited and its error text
+  reached the LLM as if it were results. Tavily now runs only when the knowledge base has no good match, failures are stated plainly, and
+  each diagnosis saves the internal documents or web URLs it used.</p>
+  <p><b>RAG failed after a worker's first task</b> (commit <code>e426043</code>). The Qdrant async client was a process-wide singleton, but each
+  Celery task runs on a new event loop, so later searches failed with "Event loop is closed". The client is now recreated per loop.</p>
   <p><b>Outdated status test</b> (commit <code>aa0fc39</code>). <code>test_change_ticket_status</code> now follows the allowed lifecycle, and a new
   test checks that skipping straight from open to resolved is rejected.</p>
 </section>
