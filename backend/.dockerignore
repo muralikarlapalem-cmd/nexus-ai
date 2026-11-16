@@ -1,0 +1,21 @@
+# Files Docker leaves out of the image build (COPY . .).
+# Without this, every build copied ~4.2 GB into the image and took ~10 minutes
+# just to copy the folder and set file ownership.
+
+# Local Windows virtual environment (2.4 GB): useless inside the Linux image
+.venv/
+venv/
+
+# Local model files (llama-3.2-3b GGUF, 1.9 GB) used to build the Ollama model
+# on the host; nothing in the containers reads them
+**/*.gguf
+
+# Caches and local runtime files
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+celerybeat-schedule*
+
+# Never bake secrets into an image (the containers get them from env_file)
+**/.env
+**/.env.*
