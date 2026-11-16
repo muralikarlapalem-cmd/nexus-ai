@@ -79,7 +79,7 @@
 
 <!-- ═══════════════ PAGE 1 · OVERVIEW ═══════════════ -->
 <section class="page">
-  <div class="meta">NEXUS AI · Architecture document · branch docs/readme-and-reranker · 15 Nov 2026</div>
+  <div class="meta">NEXUS AI · Architecture document · branch main · 16 Nov 2026</div>
   <h1 style="margin-top:6pt">NEXUS AI System Architecture</h1>
   <div class="sub">Multi-agent IT service intelligence platform: FastAPI, LangGraph agents, hybrid RAG, Celery, React</div>
 
@@ -114,8 +114,8 @@
     <tr><th style="width:26%">Phase</th><th style="width:14%">Status</th><th>Notes</th></tr>
     <tr><td>1 · Foundation (API, auth, DB)</td><td><span class="tag t-ok">Done</span></td><td>RBAC, validated status transitions, status history, audit log</td></tr>
     <tr><td>2 · RAG pipeline</td><td><span class="tag t-ok">Done</span></td><td>Ingestion, hybrid search, reranking, streaming answers</td></tr>
-    <tr><td>3 · Agents + LangGraph</td><td><span class="tag t-ok">Done</span></td><td>4 agents, human review with resume, iteration guard; outcome saved to the ticket on every run</td></tr>
-    <tr><td>4 · React dashboard</td><td><span class="tag t-ok">Done</span></td><td>Dashboard, tickets, ticket detail, AI query, agent monitor</td></tr>
+    <tr><td>3 · Agents + LangGraph</td><td><span class="tag t-ok">Done</span></td><td>4 agents, review panel (approve / reject), iteration guard; outcome saved on every run</td></tr>
+    <tr><td>4 · React dashboard</td><td><span class="tag t-ok">Done</span></td><td>Dashboard, tickets, ticket detail + review panel, AI query, live agent monitor</td></tr>
     <tr><td>5 · Tracing, evals, security</td><td><span class="tag t-part">Partial</span></td><td>Prompt-injection guard active; evals score below thresholds; Presidio and Prometheus code not wired in</td></tr>
     <tr><td>6 · Fine-tuning (QLoRA)</td><td><span class="tag t-part">Partial</span></td><td>Dataset export, notebook, Ollama deploy; model not used by agents</td></tr>
     <tr><td>Analytics agent</td><td><span class="tag t-no">Not started</span></td><td>Enum value and commented-out router only</td></tr>
@@ -351,8 +351,8 @@
       <text x="415" y="336">10 Diagnosis: RAG; web (Tavily) only if no good match</text>
       <text x="415" y="360" fill="#5b6672">Knowledge: runbook → RAG ingest</text>
       <text x="415" y="396">11 interrupt() · state saved</text>
-      <text x="66" y="420">12 POST /agents/resume</text>
-      <text x="181" y="436">13 Command(resume={approved, next_agent, notes})</text>
+      <text x="66" y="420">12 review panel · POST /agents/resume</text>
+      <text x="181" y="436">13 Command(resume={approved, notes}) · next END</text>
       <text x="415" y="476">14 persist_final_state: save outputs · resolve or hand to human</text>
       <text x="66" y="516">15 GET /agents/status · /trace</text>
       <text x="70" y="556">status, triage/diagnosis JSON, message trace</text>
@@ -360,7 +360,7 @@
     <text x="415" y="502" font-size="8.5" fill="#2f855a">Runs after the first run and after every resume (13)</text>
   </svg>
   </div>
-  <div class="cap">Figure 2. Sequence for one ticket. Dashed arrows are responses. In step 6, a ticket whose text matches an injection pattern is assigned to a human and the run stops before any LLM call.</div>
+  <div class="cap">Figure 2. Sequence for one ticket. Dashed arrows are responses. In step 3 the API marks the ticket <code>in_progress</code> before queueing, so a second run is refused. In step 6, a ticket whose text matches an injection pattern is assigned to a human and the run stops before any LLM call. Approve and resolve and Reject (12–14) need no agent, so they finish inside the request; sending the ticket back to an agent instead (API only, <code>next_agent</code>) is queued as <code>resume_ticket_task</code>.</div>
 
   <h3>Ticket status lifecycle</h3>
   <p>Manual status changes go through <code>POST /tickets/{id}/status</code>, which rejects any transition not in
@@ -412,10 +412,10 @@
       <text x="170" y="153">threat level · CVEs · PII</text>
       <text x="170" y="165" fill="#5b6672" font-size="8.5">cve_lookup · rag_search · regex</text>
 
-      <rect x="180" y="225" width="180" height="50" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
-      <text x="190" y="243" font-weight="700" font-size="11" fill="#b7791f">Human review</text>
-      <text x="190" y="258">interrupt() · wait for /resume</text>
-      <text x="190" y="270" fill="#5b6672" font-size="8.5">agent or admin approves / redirects</text>
+      <rect x="170" y="218" width="210" height="58" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
+      <text x="180" y="236" font-weight="700" font-size="11" fill="#b7791f">Human review</text>
+      <text x="180" y="251">interrupt() · review panel on the ticket</text>
+      <text x="180" y="265" fill="#5b6672" font-size="8.5">agent or admin adds notes, then decides</text>
 
       <rect x="490" y="130" width="180" height="62" rx="6" fill="#eef0f2" stroke="#5b6672"/>
       <text x="500" y="148" font-weight="700" font-size="11" fill="#5b6672">Guard</text>
@@ -429,28 +429,32 @@
       <path d="M640,60 H648"/>
       <path d="M190,85 V118"/>
       <path d="M310,138 H330 V87"/>
-      <path d="M235,170 V223"/>
-      <path d="M100,85 V250 H178"/>
-      <path d="M420,85 V250 H362"/>
-      <path d="M350,225 V200 H375 V87"/>
-      <path d="M270,275 V305 H668 V80"/>
+      <path d="M235,170 V216"/>
+      <path d="M100,85 V247 H168"/>
+      <path d="M420,85 V247 H382"/>
+      <path d="M205,276 V300 H676 V80"/>
+      <path d="M345,276 V300" marker-end="none"/>
     </g>
     <g font-size="8.5" fill="#5b6672">
       <text x="232" y="49">default route</text>
       <text x="196" y="103">security keywords</text>
       <text x="336" y="128">then diagnose</text>
-      <text x="241" y="200">critical · escalate</text>
-      <text x="241" y="211">· containment</text>
+      <text x="241" y="196">critical · escalate</text>
+      <text x="241" y="207">· containment</text>
       <text x="106" y="196">HITL triggers*</text>
       <text x="426" y="215">escalation</text>
       <text x="426" y="226">needed</text>
-      <text x="380" y="190">approved →</text>
-      <text x="380" y="201">next_agent</text>
-      <text x="380" y="300">not approved → END · Knowledge → END sets status resolved</text>
+      <text x="565" y="100" text-anchor="middle">Knowledge → END sets status resolved</text>
+    </g>
+    <g font-size="8.5">
+      <text x="211" y="292" fill="#2f855a" font-weight="700">Approve</text>
+      <text x="351" y="292" fill="#b7791f" font-weight="700">Reject</text>
+      <text x="290" y="314"><tspan fill="#2f855a" font-weight="700">Approve and resolve</tspan><tspan fill="#5b6672"> → END · resolved, with the review notes as the resolution</tspan></text>
+      <text x="290" y="326"><tspan fill="#b7791f" font-weight="700">Reject</tspan><tspan fill="#5b6672"> → END · stays in progress, assigned to a human</tspan></text>
     </g>
   </svg>
   </div>
-  <div class="cap">Figure 3. Supervisor graph. *Triage escalates on data-loss risk, a production outage over 1 h, a security breach, or confidence below 0.4. Before START, <code>run_supervisor</code> re-checks the ticket text for prompt injection and hands matches to a human instead of running the graph.</div>
+  <div class="cap">Figure 3. Supervisor graph. *Triage escalates on data-loss risk, a production outage over 1 h, a security breach, or confidence below 0.4. Before START, <code>run_supervisor</code> re-checks the ticket text for prompt injection and hands matches to a human instead of running the graph. The resume API can still send an approved ticket back to an agent with <code>next_agent</code>; the app's review panel does not offer this.</div>
 
   <h3>Agents</h3>
   <table>
@@ -590,7 +594,7 @@
   whenever the event loop changes.</p>
   <table>
     <tr><th style="width:33%">Task</th><th style="width:12%">Queue</th><th style="width:20%">Trigger</th><th>What it does</th></tr>
-    <tr><td><code>process_ticket_task</code></td><td>agents</td><td>POST /agents/run</td><td>Runs the LangGraph supervisor for one ticket (3 retries, 30 s apart)</td></tr>
+    <tr><td><code>process_ticket_task</code> · <code>resume_ticket_task</code></td><td>agents</td><td>/agents/run · /resume</td><td>Runs the supervisor for a ticket; resumes one sent back to an agent</td></tr>
     <tr><td><code>check_sla_breaches</code></td><td>default</td><td>Beat, every 15 min</td><td>Flags open, triaged or in-progress tickets past <code>sla_due_at</code></td></tr>
     <tr><td><code>ingest_resolved_tickets_task</code></td><td>rag</td><td>Beat, every 6 h</td><td>Adds up to 200 newly resolved tickets to the knowledge base</td></tr>
     <tr><td><code>rebuild_bm25_task</code></td><td>rag</td><td>Beat, every 7 days</td><td>Rebuilds the BM25 index from Qdrant</td></tr>
@@ -611,8 +615,8 @@
     <tr><td>celery-worker</td><td>./backend</td><td>—</td><td>Concurrency 4; ping health check</td></tr>
     <tr><td>celery-beat</td><td>./backend</td><td>—</td><td>Schedules the periodic tasks</td></tr>
   </table>
-  <p>This is a development topology: source is bind-mounted with auto-reload, and Keycloak runs in dev mode. A production deployment would
-  build immutable images, run Keycloak in production mode with its own database, and put TLS and a reverse proxy in front of the API.</p>
+  <p>A development topology (bind-mounted source with auto-reload, Keycloak in dev mode). Production would use immutable images,
+  Keycloak in production mode with its own database, and TLS behind a reverse proxy.</p>
 
   <h3>Observability</h3>
   <ul style="margin:0 0 6pt; padding-left:14pt">
@@ -645,10 +649,9 @@
     <tr><td class="sev sev-m">Medium</td><td><b>Eval scores below CI thresholds.</b> The latest local RAGAS run scored below all four thresholds, so the gate on <code>main</code> will fail.</td><td>Re-run evals after the reranker fix; improve retrieval or ground-truth data before enforcing the gate.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>PII redaction not applied.</b> Personal data in tickets goes to the LLM and into the knowledge base as written.</td><td>Call <code>redact_pii</code> before storage or ingestion.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>Injection guard is pattern-only.</b> Rephrased attacks pass, and fetched web and NVD text is not checked.</td><td>Wrap untrusted text in delimiters in every agent prompt and instruct the model to treat it as data.</td></tr>
-    <tr><td class="sev sev-m">Medium</td><td><b>Resume loop.</b> An approved review defaults to <code>diagnosis_agent</code>; if diagnosis escalates again the run cycles until the guard stops it at 8.</td><td>Record that a human approved and skip re-escalation for the same reason.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>Agents ignore tenancy.</b> Runbooks and searches from agents always use tenant <code>default</code>.</td><td>Carry tenant ID in <code>TicketState</code> and pass it through the tools.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>One Redis connection per graph use.</b> Every run, status, resume and trace call opens a new checkpointer connection and re-runs setup.</td><td>Create the checkpointer once per process (API lifespan, worker init).</td></tr>
-    <tr><td class="sev sev-l">Low</td><td><b>Resume runs inside the HTTP request.</b> <code>POST /agents/resume</code> waits for the remaining agents and their LLM calls before replying.</td><td>Dispatch the resume as a Celery task on the <code>agents</code> queue, like <code>/agents/run</code>.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Resume loop (API only).</b> Sending an approved ticket back to an agent with <code>next_agent</code> can escalate again for the same reason, cycling until the guard stops it at 8. The app's Approve ends the run instead.</td><td>Record that a human approved and skip re-escalation for the same reason.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Observability unfinished.</b> <code>langsmith_run_id</code> never set; Prometheus metrics not exposed.</td><td>Capture the run ID from the tracer callback; mount a <code>/metrics</code> endpoint.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Stub tasks and unused model.</b> <code>index_ticket_for_rag</code>, <code>run_eval_suite</code> only log; the fine-tuned <code>nexus-it</code> model is not used.</td><td>Implement or remove the stubs; add a provider switch so agents can use the local model.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Analytics agent missing.</b> Present in the enum and a commented-out router only.</td><td>Build it or remove the references.</td></tr>
@@ -665,12 +668,16 @@
   <p><b>Self-registration accepted any role.</b> <code>/auth/register</code> now always creates a <code>user</code> and rejects a <code>role</code>
   field; the first admin is promoted with the <code>make-admin</code> CLI command, which writes an audit-log entry.</p>
   <p><b>CI eval gate used the wrong key.</b> The workflow now passes <code>OPENAI_API_KEY</code>, which the code actually reads.</p>
-  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (61 tests as of 16 Nov 2026).</p>
+  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (84 tests as of 16 Nov 2026).</p>
   <p><b>Web search blocked; sources not recorded</b> (commit <code>e426043</code>). The DuckDuckGo tool was rate-limited and its error text
   reached the LLM as if it were results. Tavily now runs only when the knowledge base has no good match, failures are stated plainly, and
   each diagnosis saves the internal documents or web URLs it used.</p>
   <p><b>RAG failed after a worker's first task</b> (commit <code>e426043</code>). The Qdrant async client was a process-wide singleton, but each
   Celery task runs on a new event loop, so later searches failed with "Event loop is closed". The client is now recreated per loop.</p>
+  <p><b>Human review and live progress</b> (commits <code>a60cde4</code>, <code>a2ce3be</code>). A paused ticket shows a review panel: Approve
+  and resolve resolves it with the reviewer's notes, Reject leaves it with a human. The Agent Monitor and ticket page show the working agent live.</p>
+  <p><b>AI Knowledge Query and image size</b> (<code>e2ab394</code>, <code>eb369e6</code>, <code>9560181</code>). Uncovered questions fall back to the
+  web or general IT knowledge; the reranker ships in the image; the backend image shrank from about 18 GB to 3.3 GB.</p>
   <p><b>Outdated status test</b> (commit <code>aa0fc39</code>). <code>test_change_ticket_status</code> now follows the allowed lifecycle, and a new
   test checks that skipping straight from open to resolved is rejected.</p>
 </section>
