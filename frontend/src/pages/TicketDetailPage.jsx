@@ -1,9 +1,11 @@
+import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ticketApi, agentApi } from '../api/tickets'
 import { useAuthStore } from '../store/authStore'
 import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
+import AgentPipeline, { NODE_LABELS } from '../components/AgentPipeline'
 
 const PRIORITY_COLOR = { critical:'text-red-400', high:'text-orange-400', medium:'text-yellow-400', low:'text-green-400' }
 
@@ -43,21 +45,41 @@ export default function TicketDetailPage() {
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
     queryFn: () => ticketApi.get(id).then(r => r.data),
+    // Keep watching while agents run, so the page follows the run without a reload.
+    // Once it is waiting on a human there is little to see, so check less often.
+    refetchInterval: (query) => {
+      const t = query.state.data
+      if (t?.status !== 'in_progress') return false
+      return t.assigned_agent === 'human' ? 10000 : 2000
+    },
   })
   const { data: trace } = useQuery({
     queryKey: ['trace', id],
     queryFn: () => agentApi.trace(id).then(r => r.data),
-    refetchInterval: ticket?.status === 'in_progress' ? 3000 : false,
+    refetchInterval: ticket?.status === 'in_progress' ? 2000 : false,
   })
 
   const runMutation = useMutation({
     mutationFn: () => agentApi.run(id),
-    onSuccess: () => qc.invalidateQueries(['ticket', id]),
+    // The API marks the ticket in_progress before it answers, so this refetch starts the polling
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+      qc.invalidateQueries({ queryKey: ['trace', id] })
+    },
+    onError: (err) => {
+      alert(err?.response?.data?.detail || 'Failed to start the agents')
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+    },
   })
+
+  // When the run ends the trace polling stops; fetch it once more for the last messages
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: ['trace', id] })
+  }, [qc, id, ticket?.status, ticket?.assigned_agent])
 
   const statusMutation = useMutation({
     mutationFn: (newStatus) => ticketApi.updateStatus(id, { status: newStatus }),
-    onSuccess: () => qc.invalidateQueries(['ticket', id]),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ticket', id] }),
     onError: (err) => {
       alert(err?.response?.data?.detail || 'Failed to update status')
     },
@@ -66,6 +88,16 @@ export default function TicketDetailPage() {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
   const allowedNextStatuses = VALID_STATUS_TRANSITIONS[ticket?.status] || []
+
+  // Where the run is right now. The trace endpoint reports the graph node that is executing.
+  const inProgress = ticket?.status === 'in_progress'
+  const currentNode = inProgress ? trace?.current_node?.[0] : undefined
+  const withHuman = inProgress && (currentNode === 'human_review' || ticket?.assigned_agent === 'human')
+  let liveLabel = null
+  if (withHuman) liveLabel = 'Waiting for human review'
+  else if (currentNode === '__start__') liveLabel = 'Starting…'
+  else if (currentNode) liveLabel = `${NODE_LABELS[currentNode] || currentNode} agent is working…`
+  else if (inProgress) liveLabel = trace?.trace?.length ? 'Finishing up…' : 'Queued — waiting for a worker…'
 
   if (isLoading) return <div className="flex items-center justify-center h-full text-nexus-muted text-sm">Loading…</div>
   if (!ticket)   return <div className="p-8 text-red-400">Ticket not found</div>
@@ -104,13 +136,30 @@ export default function TicketDetailPage() {
           </p>
         </div>
         {(ticket.status === 'open' || ticket.status === 'triaged') && (
-          <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}
+          <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending || runMutation.isSuccess}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium">
             {runMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
             Run Agents
           </button>
         )}
       </div>
+
+      {/* Live run status: which agent has the ticket right now */}
+      {inProgress && (
+        <div className={`mb-6 rounded-xl border p-4 ${withHuman ? 'bg-orange-900/10 border-orange-900/40' : 'bg-indigo-600/10 border-indigo-600/40'}`}>
+          <div className="flex items-center gap-2 mb-3">
+            {withHuman
+              ? <AlertTriangle size={14} className="text-orange-400" />
+              : <Loader2 size={14} className="text-indigo-400 animate-spin" />}
+            <p className={`text-sm font-medium ${withHuman ? 'text-orange-300' : 'text-indigo-200'}`}>{liveLabel}</p>
+          </div>
+          <AgentPipeline
+            counts={currentNode ? { [currentNode]: 1 } : withHuman ? { human_review: 1 } : {}}
+            showEnds={false}
+            showHuman={false}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Description + Resolution */}
@@ -150,7 +199,7 @@ export default function TicketDetailPage() {
           <div className="flex items-center gap-2 mb-4">
             <Bot size={14} className="text-indigo-400" />
             <h2 className="text-sm font-semibold text-white">Agent Trace</h2>
-            {ticket.status === 'in_progress' && <Loader2 size={12} className="text-indigo-400 animate-spin ml-auto" />}
+            {inProgress && !withHuman && <Loader2 size={12} className="text-indigo-400 animate-spin ml-auto" />}
           </div>
           <div className="space-y-3">
             {trace?.trace?.length ? trace.trace.map((msg, i) => (

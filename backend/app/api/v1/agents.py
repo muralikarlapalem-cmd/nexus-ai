@@ -28,6 +28,7 @@ router = APIRouter(prefix="/agents", tags=["Agents"])
 
 # Graph node name → label shown in the UI for a run that is about to run / running it
 NODE_STEP_LABELS = {
+    "__start__": "Starting",
     "triage_agent": "Triage",
     "security_agent": "Security",
     "diagnosis_agent": "Diagnosis",
@@ -86,9 +87,23 @@ async def trigger_agent_run(
     if ticket.status == TicketStatus.IN_PROGRESS:
         raise HTTPException(status_code=409, detail="Agent run already in progress for this ticket")
 
+    # Mark the run as started now, not when the worker picks it up: the UI sees
+    # it immediately and a second click hits the 409 above instead of starting
+    # a duplicate run.
+    previous = (ticket.status, ticket.assigned_agent)
+    ticket.status = TicketStatus.IN_PROGRESS
+    ticket.assigned_agent = AssignedAgent.TRIAGE
+    await db.commit()
+
     # Dispatch via Celery for production async execution
     from app.workers.celery_app import process_ticket_task
-    task = process_ticket_task.delay(str(ticket_id))
+    try:
+        task = process_ticket_task.delay(str(ticket_id))
+    except Exception as e:
+        # Nothing was queued (broker unreachable): put the ticket back
+        ticket.status, ticket.assigned_agent = previous
+        await db.commit()
+        raise HTTPException(status_code=503, detail=f"Could not queue the agent run: {e}")
 
     return AgentRunResponse(
         ticket_id=str(ticket_id),

@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { agentApi } from '../api/tickets'
 import { Bot, Zap, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
+import AgentPipeline from '../components/AgentPipeline'
 
 const AGENTS = [
   { key: 'triage',    label: 'Triage',    icon: '🎫', color: 'pink'   },
@@ -19,17 +20,28 @@ const STEP_STYLE = {
   human_review:    'bg-orange-900/40 text-orange-400',
 }
 
-function AgentCard({ agent, model }) {
+function AgentCard({ agent, model, tickets = [] }) {
+  // tickets: the runs this agent is working on right now
+  const working = tickets.length > 0
   return (
-    <div className="bg-nexus-surface border border-nexus-border rounded-xl p-5">
+    <div className={`bg-nexus-surface border rounded-xl p-5 transition-colors ${working ? 'border-indigo-500 ring-2 ring-indigo-500/30' : 'border-nexus-border'}`}>
       <div className="flex items-center gap-3 mb-3">
         <span className="text-2xl">{agent.icon}</span>
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-white">{agent.label} Agent</p>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs text-green-400">Ready</span>
-          </div>
+          {working ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping flex-shrink-0" />
+              <span className="text-xs text-indigo-300 truncate">
+                Working on {tickets[0].ticket_number}{tickets.length > 1 ? ` +${tickets.length - 1} more` : ''}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <span className="text-xs text-green-400">Idle</span>
+            </div>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 mt-3">
@@ -50,7 +62,8 @@ export default function AgentMonitorPage() {
   const { data } = useQuery({
     queryKey: ['agents', 'active'],
     queryFn: () => agentApi.active({ limit: 10 }).then(r => r.data),
-    refetchInterval: 5000,
+    // Poll faster while something is running, so each step is seen as it happens
+    refetchInterval: (query) => (query.state.data?.items?.length ? 2000 : 5000),
   })
   const { data: info } = useQuery({
     queryKey: ['agents', 'info'],
@@ -59,6 +72,14 @@ export default function AgentMonitorPage() {
   })
 
   const active = data?.items || []
+
+  // Graph node → the runs sitting on it right now
+  const byNode = {}
+  for (const t of active) {
+    if (t.current_node) (byNode[t.current_node] ||= []).push(t)
+  }
+  const counts = Object.fromEntries(Object.entries(byNode).map(([node, runs]) => [node, runs.length]))
+  const running = active.filter(t => t.current_node && t.current_node !== 'human_review').length
 
   return (
     <div className="p-8">
@@ -69,26 +90,13 @@ export default function AgentMonitorPage() {
 
       {/* Graph diagram */}
       <div className="bg-nexus-surface border border-nexus-border rounded-xl p-6 mb-6">
-        <p className="text-xs text-nexus-muted font-medium mb-4">Supervisor Graph Topology</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          {[
-            { label: 'START', color: 'bg-indigo-600' },
-            { label: '→' },
-            { label: 'Triage', color: 'bg-pink-900/40 text-pink-400 border border-pink-900/50' },
-            { label: '→' },
-            { label: 'Security?', color: 'bg-red-900/40 text-red-400 border border-red-900/50' },
-            { label: '→' },
-            { label: 'Diagnosis', color: 'bg-blue-900/40 text-blue-400 border border-blue-900/50' },
-            { label: '→' },
-            { label: 'Knowledge', color: 'bg-yellow-900/40 text-yellow-400 border border-yellow-900/50' },
-            { label: '→' },
-            { label: 'END', color: 'bg-green-600' },
-          ].map((item, i) =>
-            item.label === '→'
-              ? <span key={i} className="text-nexus-muted">→</span>
-              : <span key={i} className={`text-xs px-3 py-1.5 rounded-full font-medium text-white ${item.color}`}>{item.label}</span>
-          )}
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs text-nexus-muted font-medium">Supervisor Graph Topology</p>
+          <span className={`text-xs ${running ? 'text-indigo-300' : 'text-nexus-muted'}`}>
+            {running ? `${running} run${running > 1 ? 's' : ''} in flight — highlighted step is working now` : 'No agent is working right now'}
+          </span>
         </div>
+        <AgentPipeline counts={counts} />
         <p className="text-xs text-nexus-muted mt-3 flex items-center gap-1.5">
           <AlertTriangle size={10} className="text-orange-400" />
           HITL checkpoint triggers before human_review node on critical/security escalations
@@ -97,7 +105,7 @@ export default function AgentMonitorPage() {
 
       {/* Agent cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {AGENTS.map(a => <AgentCard key={a.key} agent={a} model={info?.llm_model} />)}
+        {AGENTS.map(a => <AgentCard key={a.key} agent={a} model={info?.llm_model} tickets={byNode[`${a.key}_agent`]} />)}
       </div>
 
       {/* Active runs */}

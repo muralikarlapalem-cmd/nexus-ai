@@ -138,3 +138,58 @@ async def test_info_reports_configured_model(tickets):
     resp = await _get(token, "/api/v1/agents/info")
     assert resp.status_code == 200
     assert resp.json()["llm_model"] == rag_settings.llm_model
+
+
+async def _post(token, path):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.post(path, headers={"Authorization": f"Bearer {token}"})
+
+
+async def _open_ticket(rows):
+    """Put the finished ticket back to open, as if it had just been created."""
+    ticket_id = rows["NX-2026-00004"].id
+    async with TestSessionLocal() as db:
+        t = await db.get(Ticket, ticket_id)
+        t.status = TicketStatus.OPEN
+        await db.commit()
+    return ticket_id
+
+
+@pytest.mark.asyncio
+async def test_run_marks_ticket_in_progress_before_the_worker_starts(tickets, monkeypatch):
+    """The click itself must flip the status, so the UI shows the run and a second click is refused."""
+    import app.workers.celery_app as workers
+    rows, token = tickets
+    ticket_id = await _open_ticket(rows)
+    queued = []
+    monkeypatch.setattr(workers.process_ticket_task, "delay",
+                        lambda tid: queued.append(tid) or SimpleNamespace(id="task-1"))
+
+    first = await _post(token, f"/api/v1/agents/run/{ticket_id}")
+    second = await _post(token, f"/api/v1/agents/run/{ticket_id}")
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert queued == [str(ticket_id)]            # only one run dispatched
+    async with TestSessionLocal() as db:
+        t = await db.get(Ticket, ticket_id)
+        assert t.status == TicketStatus.IN_PROGRESS
+        assert t.assigned_agent == AssignedAgent.TRIAGE
+
+
+@pytest.mark.asyncio
+async def test_run_puts_ticket_back_when_it_cannot_be_queued(tickets, monkeypatch):
+    import app.workers.celery_app as workers
+    rows, token = tickets
+    ticket_id = await _open_ticket(rows)
+
+    def broker_down(_):
+        raise ConnectionError("broker down")
+    monkeypatch.setattr(workers.process_ticket_task, "delay", broker_down)
+
+    resp = await _post(token, f"/api/v1/agents/run/{ticket_id}")
+
+    assert resp.status_code == 503
+    async with TestSessionLocal() as db:
+        t = await db.get(Ticket, ticket_id)
+        assert t.status == TicketStatus.OPEN
