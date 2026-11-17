@@ -30,6 +30,10 @@ export const agentApi = {
   active: (params)    => client.get('/agents/active', { params }),
 }
 
+export const analyticsApi = {
+  summary: (params)    => client.get('/analytics/summary', { params }),
+}
+
 export const authApi = {
   login:    (data) => client.post('/auth/login', data),
   me:       ()     => client.get('/auth/me'),

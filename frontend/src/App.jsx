@@ -7,6 +7,7 @@ import TicketsPage from './pages/TicketsPage'
 import TicketDetailPage from './pages/TicketDetailPage'
 import QueryPage from './pages/QueryPage'
 import AgentMonitorPage from './pages/AgentMonitorPage'
+import AnalyticsPage from './pages/AnalyticsPage'
 
 function ProtectedRoute({ children }) {
   const token = useAuthStore(s => s.token)
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="tickets/:id"     element={<TicketDetailPage />} />
           <Route path="query"           element={<QueryPage />} />
           <Route path="agents"          element={<AgentMonitorPage />} />
+          <Route path="analytics"       element={<AnalyticsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

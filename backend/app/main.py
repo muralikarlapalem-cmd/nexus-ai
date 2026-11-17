@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from app.api.v1 import auth, health, tickets, users, rag, agents
+from app.api.v1 import auth, health, tickets, users, rag, agents, analytics
 from app.config import settings
 from app.database import close_db, init_db
 
@@ -119,11 +119,7 @@ app.include_router(tickets.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(rag.router, prefix=API_PREFIX)     # Phase 2
 app.include_router(agents.router, prefix=API_PREFIX)  # Phase 3
-
-# Phase 3+ routers (added as phases are built):
-# from app.api.v1 import agents, analytics
-# app.include_router(agents.router, prefix=API_PREFIX)
-# app.include_router(analytics.router, prefix=API_PREFIX)
+app.include_router(analytics.router, prefix=API_PREFIX)
 
 
 # ── Root ─────────────────────────────────────────────────────
