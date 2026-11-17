@@ -79,7 +79,7 @@
 
 <!-- ═══════════════ PAGE 1 · OVERVIEW ═══════════════ -->
 <section class="page">
-  <div class="meta">NEXUS AI · Architecture document · branch main · 16 Nov 2026</div>
+  <div class="meta">NEXUS AI · Architecture document · branch main · 17 Nov 2026</div>
   <h1 style="margin-top:6pt">NEXUS AI System Architecture</h1>
   <div class="sub">Multi-agent IT service intelligence platform: FastAPI, LangGraph agents, hybrid RAG, Celery, React</div>
 
@@ -115,10 +115,10 @@
     <tr><td>1 · Foundation (API, auth, DB)</td><td><span class="tag t-ok">Done</span></td><td>RBAC, validated status transitions, status history, audit log</td></tr>
     <tr><td>2 · RAG pipeline</td><td><span class="tag t-ok">Done</span></td><td>Ingestion, hybrid search, reranking, streaming answers</td></tr>
     <tr><td>3 · Agents + LangGraph</td><td><span class="tag t-ok">Done</span></td><td>4 agents, review panel (approve / reject), iteration guard; outcome saved on every run</td></tr>
-    <tr><td>4 · React dashboard</td><td><span class="tag t-ok">Done</span></td><td>Dashboard, tickets, ticket detail + review panel, AI query, live agent monitor</td></tr>
+    <tr><td>4 · React dashboard</td><td><span class="tag t-ok">Done</span></td><td>Dashboard, tickets + review panel, AI query, live agent monitor, analytics page</td></tr>
     <tr><td>5 · Tracing, evals, security</td><td><span class="tag t-part">Partial</span></td><td>Prompt-injection guard active; evals score below thresholds; Presidio and Prometheus code not wired in</td></tr>
     <tr><td>6 · Fine-tuning (QLoRA)</td><td><span class="tag t-part">Partial</span></td><td>Dataset export, notebook, Ollama deploy; model not used by agents</td></tr>
-    <tr><td>Analytics agent</td><td><span class="tag t-no">Not started</span></td><td>Enum value and commented-out router only</td></tr>
+    <tr><td>Analytics agent</td><td><span class="tag t-no">Not started</span></td><td>Enum value only; the Analytics page is plain SQL, with no agent</td></tr>
   </table>
 
   <h3>Contents</h3>
@@ -145,7 +145,7 @@
     <rect x="10" y="10" width="440" height="62" rx="6" fill="#e8f0fa" stroke="#2563a8"/>
     <text x="22" y="30" font-weight="700" font-size="12" fill="#2563a8">React single-page app</text>
     <text x="22" y="46">Vite · localhost:5173 · runs on the host, outside Docker</text>
-    <text x="22" y="61" fill="#5b6672" font-size="9.5">Login · Dashboard · Tickets · Ticket detail · AI Query · Agent Monitor</text>
+    <text x="22" y="61" fill="#5b6672" font-size="9.5">Login · Dashboard · Tickets · Ticket detail · AI Query · Agent Monitor · Analytics</text>
 
     <rect x="490" y="10" width="190" height="62" rx="6" fill="#e3f3f3" stroke="#23797a"/>
     <text x="502" y="30" font-weight="700" font-size="12" fill="#23797a">Keycloak 24</text>
@@ -160,7 +160,7 @@
     <text x="22" y="192" font-size="9.5">CORS · SlowAPI rate limit</text>
     <text x="22" y="205" font-size="9.5">X-Request-ID + timing logs</text>
     <text x="22" y="226" font-weight="600">Routers</text>
-    <text x="22" y="240" font-size="9.5">/health  /auth  /users</text>
+    <text x="22" y="240" font-size="9.5">/health  /auth  /users  /analytics</text>
     <text x="22" y="253" font-size="9.5">/tickets  status transitions</text>
     <text x="22" y="266" font-size="9.5">/rag  ingest · search · query</text>
     <text x="22" y="279" font-size="9.5">/agents  run · status · resume · trace</text>
@@ -279,7 +279,7 @@
   <table>
     <tr><th style="width:22%">Component</th><th style="width:30%">Code</th><th>Responsibility</th></tr>
     <tr><td>React SPA</td><td><code>frontend/src/</code></td><td>UI; stores the JWT in a Zustand auth store; polls agent status and trace</td></tr>
-    <tr><td>FastAPI</td><td><code>backend/app/main.py</code>, <code>api/v1/</code></td><td>Auth, RBAC, ticket CRUD and lifecycle, RAG and agent endpoints</td></tr>
+    <tr><td>FastAPI</td><td><code>backend/app/main.py</code>, <code>api/v1/</code></td><td>Auth, RBAC, ticket CRUD and lifecycle, RAG, agent and analytics endpoints</td></tr>
     <tr><td>Celery worker / beat</td><td><code>backend/app/workers/</code></td><td>Runs the agent pipeline, RAG ingestion and scheduled jobs</td></tr>
     <tr><td>LangGraph supervisor</td><td><code>agents/supervisor.py</code></td><td>Routes the ticket between agents, checkpoints state, pauses for humans</td></tr>
     <tr><td>Agents + tools</td><td><code>agents/*.py</code>, <code>agents/tools/</code></td><td>LLM reasoning steps with structured JSON output; tool calls to RAG, web, NVD, DB</td></tr>
@@ -654,7 +654,7 @@
     <tr><td class="sev sev-l">Low</td><td><b>Resume loop (API only).</b> Sending an approved ticket back to an agent with <code>next_agent</code> can escalate again for the same reason, cycling until the guard stops it at 8. The app's Approve ends the run instead.</td><td>Record that a human approved and skip re-escalation for the same reason.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Observability unfinished.</b> <code>langsmith_run_id</code> never set; Prometheus metrics not exposed.</td><td>Capture the run ID from the tracer callback; mount a <code>/metrics</code> endpoint.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Stub tasks and unused model.</b> <code>index_ticket_for_rag</code>, <code>run_eval_suite</code> only log; the fine-tuned <code>nexus-it</code> model is not used.</td><td>Implement or remove the stubs; add a provider switch so agents can use the local model.</td></tr>
-    <tr><td class="sev sev-l">Low</td><td><b>Analytics agent missing.</b> Present in the enum and a commented-out router only.</td><td>Build it or remove the references.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Analytics agent missing.</b> Present in the enum only; the Analytics page uses SQL, not an agent.</td><td>Build it or remove the references.</td></tr>
   </table>
 
   <h3>Recently fixed</h3>
@@ -668,7 +668,7 @@
   <p><b>Self-registration accepted any role.</b> <code>/auth/register</code> now always creates a <code>user</code> and rejects a <code>role</code>
   field; the first admin is promoted with the <code>make-admin</code> CLI command, which writes an audit-log entry.</p>
   <p><b>CI eval gate used the wrong key.</b> The workflow now passes <code>OPENAI_API_KEY</code>, which the code actually reads.</p>
-  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (84 tests as of 16 Nov 2026).</p>
+  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (90 tests as of 17 Nov 2026).</p>
   <p><b>Web search blocked; sources not recorded</b> (commit <code>e426043</code>). The DuckDuckGo tool was rate-limited and its error text
   reached the LLM as if it were results. Tavily now runs only when the knowledge base has no good match, failures are stated plainly, and
   each diagnosis saves the internal documents or web URLs it used.</p>
@@ -678,8 +678,8 @@
   and resolve resolves it with the reviewer's notes, Reject leaves it with a human. The Agent Monitor and ticket page show the working agent live.</p>
   <p><b>AI Knowledge Query and image size</b> (<code>e2ab394</code>, <code>eb369e6</code>, <code>9560181</code>). Uncovered questions fall back to the
   web or general IT knowledge; the reranker ships in the image; the backend image shrank from about 18 GB to 3.3 GB.</p>
-  <p><b>Outdated status test</b> (commit <code>aa0fc39</code>). <code>test_change_ticket_status</code> now follows the allowed lifecycle, and a new
-  test checks that skipping straight from open to resolved is rejected.</p>
+  <p><b>Analytics page</b> (commit <code>b6fb61d</code>). <code>GET /analytics/summary</code>: backlog, SLA compliance, resolve time and daily trends, in SQL.</p>
+  <p><b>Outdated status test</b> (commit <code>aa0fc39</code>). <code>test_change_ticket_status</code> follows the allowed lifecycle; open to resolved is rejected.</p>
 </section>
 
 </body>
