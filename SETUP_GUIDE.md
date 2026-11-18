@@ -170,7 +170,7 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
   -d '{
     "email": "admin@nexus.ai",
     "username": "admin",
-    "password": "Admin1234!"
+    "password": "<choose-a-password>"
   }'
 ```
 
@@ -179,13 +179,16 @@ so the first admin is promoted from the server shell:
 ```bash
 docker compose exec api python -m app.cli make-admin admin
 ```
+To change a password later, run `docker compose exec api python -m app.cli set-password admin`; it asks for the
+new password twice and does not show it.
+
 After that, the admin can change other users' roles with `PATCH /api/v1/users/{id}/role`.
 
 **Login and get a token:**
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin1234!"}' | python -m json.tool
+  -d '{"username":"admin","password":"<your-password>"}' | python -m json.tool
 ```
 
 Copy the `access_token` — you'll need it for all subsequent calls.
@@ -314,9 +317,9 @@ chmod +x fine_tuning/deploy_ollama.sh
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | FastAPI Docs | http://localhost:8000/docs | — |
-| React Frontend | http://localhost:5173 | admin / Admin1234! |
+| React Frontend | http://localhost:5173 | the user you registered above |
 | Qdrant Dashboard | http://localhost:6333/dashboard | — |
-| Keycloak Admin | http://localhost:8080 | admin / admin_secret |
+| Keycloak Admin | http://localhost:8080 | `KC_ADMIN` / `KC_ADMIN_PASSWORD` from `.env` |
 | Ollama | http://localhost:11434 | — |
 
 ---

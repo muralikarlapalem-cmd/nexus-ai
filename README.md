@@ -108,15 +108,18 @@ npm run dev        # http://localhost:5173, proxies /api to :8000
 # Register a dev user
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@nexus.ai","username":"admin","password":"Admin1234!"}'
+  -d '{"email":"admin@nexus.ai","username":"admin","password":"<choose-a-password>"}'
 
 # Registration always creates a 'user'; promote the first admin from the server shell
 docker compose exec api python -m app.cli make-admin admin
 
+# Change a password later (prompts for it, nothing is echoed)
+docker compose exec api python -m app.cli set-password admin
+
 # Login
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin1234!"}'
+  -d '{"username":"admin","password":"<your-password>"}'
 
 # Create a ticket
 curl -X POST http://localhost:8000/api/v1/tickets/ \
