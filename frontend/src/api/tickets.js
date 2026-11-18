@@ -34,6 +34,20 @@ export const analyticsApi = {
   summary: (params)    => client.get('/analytics/summary', { params }),
 }
 
+export const integrationsApi = {
+  types:        ()              => client.get('/integrations/types'),
+  list:         ()              => client.get('/integrations/'),
+  get:          (id)            => client.get(`/integrations/${id}`),
+  create:       (data)          => client.post('/integrations/', data),
+  update:       (id, data)      => client.patch(`/integrations/${id}`, data),
+  remove:       (id)            => client.delete(`/integrations/${id}`),
+  test:         (id)            => client.post(`/integrations/${id}/test`),
+  testSettings: (data)          => client.post('/integrations/test', data),
+  sync:         (id, params)    => client.post(`/integrations/${id}/sync`, null, { params }),
+  runs:         (id, params)    => client.get(`/integrations/${id}/runs`, { params }),
+  writeBack:    (ticketId)      => client.post(`/integrations/tickets/${ticketId}/write-back`),
+}
+
 export const authApi = {
   login:    (data) => client.post('/auth/login', data),
   me:       ()     => client.get('/auth/me'),

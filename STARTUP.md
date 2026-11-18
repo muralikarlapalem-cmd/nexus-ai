@@ -46,8 +46,9 @@ Open **Docker Desktop** from the Start menu. Wait until the bottom-left corner s
 docker compose up -d
 ```
 
-This starts any containers that aren't running yet: postgres, redis, qdrant, ollama, keycloak, api,
-celery-worker and celery-beat. It's safe to run even if they're already running.
+This starts any containers that aren't running yet: postgres, redis, qdrant, ollama, keycloak,
+servicenow-mock, api, celery-worker and celery-beat. (The mock ServiceNow is at http://localhost:8090;
+see [INTEGRATIONS.md](INTEGRATIONS.md).) It's safe to run even if they're already running.
 
 Check that everything is up (give it about a minute after Docker starts):
 

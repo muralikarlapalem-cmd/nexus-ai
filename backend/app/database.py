@@ -79,7 +79,7 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 # ── Startup / Shutdown helpers ────────────────────────────────
 async def init_db() -> None:
     """Create all tables (used in dev; prod uses Alembic migrations)."""
-    from app.models import ticket, user, audit_log  # noqa: F401 — ensure models registered
+    from app.models import ticket, user, audit_log, integration  # noqa: F401 — ensure models registered
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables initialised")

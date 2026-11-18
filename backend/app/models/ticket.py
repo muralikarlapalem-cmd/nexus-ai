@@ -118,6 +118,13 @@ class Ticket(Base):
         order_by="TicketStatusHistory.changed_at", cascade="all, delete-orphan"
     )
 
+    # Set when the ticket was imported from an external system (ServiceNow, Jira…).
+    # Loaded with the ticket ("selectin"), so lists can show the source cheaply.
+    external_link: Mapped["ExternalTicketLink | None"] = relationship(  # noqa: F821
+        "ExternalTicketLink", back_populates="ticket", uselist=False, lazy="selectin",
+        cascade="all, delete-orphan", passive_deletes=True,
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
@@ -138,6 +145,34 @@ class Ticket(Base):
     @property
     def is_open(self) -> bool:
         return self.status in (TicketStatus.OPEN, TicketStatus.TRIAGED, TicketStatus.IN_PROGRESS)
+
+    # ── Source system (read by TicketResponse) ────────────────
+    def _loaded_external_link(self):
+        """The link if it's already loaded; never triggers a lazy load (unsafe in async code)."""
+        from sqlalchemy import inspect as sa_inspect
+        if "external_link" in sa_inspect(self).unloaded:
+            return None
+        return self.external_link
+
+    @property
+    def source(self) -> str:
+        link = self._loaded_external_link()
+        return link.source_type if link else "nexus"
+
+    @property
+    def source_name(self) -> str | None:
+        link = self._loaded_external_link()
+        return link.source_name if link else None
+
+    @property
+    def external_number(self) -> str | None:
+        link = self._loaded_external_link()
+        return link.external_number if link else None
+
+    @property
+    def external_url(self) -> str | None:
+        link = self._loaded_external_link()
+        return link.external_url if link else None
 
 class TicketStatusHistory(Base):
     __tablename__ = "ticket_status_history"

@@ -69,6 +69,13 @@ class TicketResponse(BaseModel):
     resolved_at: datetime | None
     langsmith_run_id: str | None
 
+    # Where the ticket came from: "nexus" for tickets created here, otherwise the
+    # connector type (e.g. "servicenow") with the source system's number and link.
+    source: str = "nexus"
+    source_name: str | None = None
+    external_number: str | None = None
+    external_url: str | None = None
+
     model_config = {"from_attributes": True}
 
 

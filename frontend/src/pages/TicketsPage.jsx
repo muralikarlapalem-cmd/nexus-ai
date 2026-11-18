@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { Plus, Search, ChevronRight, ChevronLeft, Loader2, X } from 'lucide-react'
 import { ticketApi } from '../api/tickets'
 import { format } from 'date-fns'
+import SourceBadge from '../components/SourceBadge'
 
 const PAGE_SIZE = 20
 
@@ -143,7 +144,10 @@ export default function TicketsPage() {
             {data?.items?.map(t => (
               <tr key={t.id} onClick={() => navigate(`/tickets/${t.id}`)}
                 className="border-b border-nexus-border hover:bg-white/[0.02] cursor-pointer transition">
-                <td className="px-4 py-3 text-xs font-mono text-indigo-400">{t.ticket_number}</td>
+                <td className="px-4 py-3 text-xs font-mono text-indigo-400">
+                  {t.ticket_number}
+                  {t.source !== 'nexus' && <div className="mt-1 font-sans"><SourceBadge ticket={t} size="xs" stopPropagation /></div>}
+                </td>
                 <td className="px-4 py-3 text-sm text-white max-w-xs truncate">{t.title}</td>
                 <td className="px-4 py-3 text-xs text-nexus-muted capitalize">{t.category}</td>
                 <td className="px-4 py-3">

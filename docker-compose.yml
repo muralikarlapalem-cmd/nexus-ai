@@ -17,6 +17,7 @@ volumes:
   keycloak_data:
   qdrant_data:
   ollama_data:
+  servicenow_mock_data:
 
 services:
 
@@ -109,6 +110,29 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - nexus-net
+
+  # ── Mock ServiceNow (local testing of the integration) ──────
+  # Copies ServiceNow's Table API so NEXUS can import incidents and post work
+  # notes without a real instance. Web page: http://localhost:8090
+  servicenow-mock:
+    build:
+      context: ./mock_servicenow
+    container_name: nexus-servicenow-mock
+    restart: unless-stopped
+    environment:
+      MOCK_SN_USER: ${MOCK_SN_USER:-nexus.integration}
+      # Empty until you set it in .env: the mock then refuses every API call
+      MOCK_SN_PASSWORD: ${INTEGRATION_SERVICENOW_MOCK_PASSWORD:-}
+      MOCK_SN_DB: /data/servicenow.db
+      # Optional push mode: set after creating the connection (see INTEGRATIONS.md)
+      MOCK_SN_WEBHOOK_URL: ${MOCK_SN_WEBHOOK_URL:-}
+      MOCK_SN_WEBHOOK_TOKEN: ${INTEGRATION_SERVICENOW_MOCK_WEBHOOK_SECRET:-}
+    volumes:
+      - servicenow_mock_data:/data
+    ports:
+      - "8090:8090"
     networks:
       - nexus-net
 

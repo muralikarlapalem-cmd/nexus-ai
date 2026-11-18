@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ticketApi, agentApi } from '../api/tickets'
+import { ticketApi, agentApi, integrationsApi } from '../api/tickets'
 import { useAuthStore } from '../store/authStore'
-import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2 } from 'lucide-react'
+import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2, Send } from 'lucide-react'
 import { format } from 'date-fns'
 import AgentPipeline, { NODE_LABELS } from '../components/AgentPipeline'
+import SourceBadge from '../components/SourceBadge'
 
 const PRIORITY_COLOR = { critical:'text-red-400', high:'text-orange-400', medium:'text-yellow-400', low:'text-green-400' }
 
@@ -152,6 +153,18 @@ export default function TicketDetailPage() {
     },
   })
 
+  // Tickets from ServiceNow etc.: post the agents' result back to the source system by hand
+  const [writeBackNotice, setWriteBackNotice] = useState(null)
+  const writeBackMutation = useMutation({
+    mutationFn: () => integrationsApi.writeBack(id).then(r => r.data),
+    onSuccess: (data) => setWriteBackNotice(
+      data.status === 'posted' ? { ok: true, text: `Posted to ${ticket?.source_name} (${data.external})` }
+      : data.status === 'nothing_to_post' ? { ok: false, text: 'Nothing to post yet: run the agents first.' }
+      : data.status === 'disabled' ? { ok: false, text: 'Write-back is turned off for this connection.' }
+      : { ok: false, text: data.status }),
+    onError: (err) => setWriteBackNotice({ ok: false, text: err?.response?.data?.detail || 'Could not post the note' }),
+  })
+
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
   const canReview = user?.role === 'admin' || user?.role === 'agent'
@@ -207,6 +220,22 @@ export default function TicketDetailPage() {
             {' · '}{ticket.category}
             {' · '}Created {format(new Date(ticket.created_at), 'MMM d, yyyy HH:mm')}
           </p>
+          {ticket.source && ticket.source !== 'nexus' && (
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="text-xs text-nexus-muted">From</span>
+              <SourceBadge ticket={ticket} />
+              {canReview && (ticket.triage_output || ticket.diagnosis_output || ticket.resolution_notes) && (
+                <button onClick={() => writeBackMutation.mutate()} disabled={writeBackMutation.isPending}
+                  className="inline-flex items-center gap-1.5 text-xs border border-nexus-border text-nexus-muted hover:text-white rounded-full px-2.5 py-0.5 disabled:opacity-50">
+                  {writeBackMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                  Post result to {ticket.source_name || 'source'}
+                </button>
+              )}
+              {writeBackNotice && (
+                <span role="status" className={`text-xs ${writeBackNotice.ok ? 'text-green-400' : 'text-yellow-300'}`}>{writeBackNotice.text}</span>
+              )}
+            </div>
+          )}
         </div>
         {(ticket.status === 'open' || ticket.status === 'triaged') && (
           <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending || runMutation.isSuccess}

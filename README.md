@@ -43,6 +43,7 @@ LLM calls use **OpenAI** via `langchain_openai.ChatOpenAI` (default model `gpt-4
 | 4 | React Frontend Dashboard | ✅ Implemented |
 | 5 | Tracing + Evals + Security | 🟡 Partial: RAGAS and triage evals exist; scores below CI thresholds; `run_eval_suite` Celery task is a stub; PII detection is regex-only |
 | 6 | Fine-Tuning Pipeline (QLoRA) | 🟡 Scaffolded: dataset export, notebook, Ollama deploy script |
+| 7 | Integrations: ServiceNow + generic REST connectors | ✅ Implemented, with a mock ServiceNow for local testing. See [INTEGRATIONS.md](INTEGRATIONS.md) |
 
 **Not built yet:** the Analytics agent / `analytics` router (commented out in `backend/app/main.py`),
 and the `index_ticket_for_rag` / `run_eval_suite` Celery tasks (they only log). Ticket indexing works
@@ -228,6 +229,12 @@ All paths are prefixed with `/api/v1`.
 | POST | `/agents/resume/{ticket_id}` | Agent/Admin | Resume after human review: `{"approved": bool, "next_agent": str, "notes": str}`. Saves the outcome to the ticket; returns `"paused"` if the run stopped for review again, 409 if nothing is paused |
 | GET | `/agents/trace/{ticket_id}` | Bearer | Agent message trace, current node, iteration count |
 
+### Integrations
+
+Connections to ServiceNow and other ticketing systems: tickets are imported, the agents run on
+new ones, and the result is posted back as a work note. Endpoints, setup, the mock ServiceNow and
+how to add another system: [INTEGRATIONS.md](INTEGRATIONS.md).
+
 ### Roles & Ticket Status Rules
 
 Four role levels: `admin`, `agent`, `analyst`, `user`. Self-registration always creates a `user`
@@ -308,6 +315,8 @@ All of these numbers are settings in `rag/config.py` (`dense_top_k`, `sparse_top
 | Every 15 min | `check_sla_breaches`: flag open tickets past their SLA deadline |
 | Every 6 h | `ingest_resolved_tickets_task`: add newly resolved tickets to RAG |
 | Every 7 days | `rebuild_bm25_task`: rebuild the BM25 index from Qdrant |
+| Every minute | `sync_due_connections_task`: sync each integration whose interval has passed |
+| After each agent run | `write_back_ticket_task`: post the result to the ticket's source system |
 
 ---
 

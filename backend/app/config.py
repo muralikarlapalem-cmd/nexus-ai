@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_collection: str = "nexus_knowledge"
 
+    # ── Integrations ─────────────────────────────────────────
+    # Address people use to open NEXUS; used for links in notes posted to ServiceNow etc.
+    public_app_url: str = "http://localhost:5173"
+
     # ── Security ─────────────────────────────────────────────
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
     rate_limit_per_minute: int = 60

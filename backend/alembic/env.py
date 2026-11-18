@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import Base so Alembic can detect model changes
 from app.database import Base
-from app.models import ticket, user, audit_log  # noqa: F401
+from app.models import ticket, user, audit_log, integration  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
@@ -24,8 +24,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# --- add this block here ---"
-KNOWN_APP_TABLES = {"tickets", "users", "audit_log", "audit_logs",ticket_status_history"}
+# --- add this block here ---
+KNOWN_APP_TABLES = {
+    "tickets", "users", "audit_log", "audit_logs", "ticket_status_history",
+    "integration_connections", "external_ticket_links", "integration_sync_runs",
+}
 
 def include_object(object, name, type_, reflected, compare_to):
     if type_ == "table" and reflected and name not in KNOWN_APP_TABLES:

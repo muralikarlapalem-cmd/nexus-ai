@@ -21,7 +21,7 @@ celery_app = Celery(
     "nexus_ai",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.workers.rag_tasks"],
+    include=["app.workers.rag_tasks", "app.workers.integration_tasks"],
 )
 
 celery_app.conf.update(
@@ -68,6 +68,12 @@ celery_app.conf.update(
         "rebuild-bm25-weekly": {
             "task": "app.workers.rag_tasks.rebuild_bm25_task",
             "schedule": 604800.0,               # every 7 days
+        },
+        # Integrations: check every minute which connections are due for a sync
+        # (each connection has its own interval, set on the Integrations page)
+        "sync-integrations-every-minute": {
+            "task": "app.workers.integration_tasks.sync_due_connections_task",
+            "schedule": 60.0,
         },
     },
 )
@@ -159,9 +165,13 @@ def process_ticket_task(ticket_id: str):
     Dispatch a ticket through the LangGraph supervisor.
     STUB — full implementation in Phase 3.
     """
-    logger.info(f"[STUB] process_ticket_task called for ticket_id={ticket_id}")
+    logger.info(f"process_ticket_task: ticket_id={ticket_id}")
     from agents.supervisor import run_supervisor
     run_async(run_supervisor(ticket_id))
+
+    # Tickets imported from ServiceNow etc.: post the result back as a work note
+    from app.workers.integration_tasks import queue_write_back
+    queue_write_back(ticket_id)
 
 
 @celery_app.task(
@@ -178,6 +188,8 @@ def resume_ticket_task(ticket_id: str, human_response: dict):
     logger.info(f"resume_ticket_task: ticket_id={ticket_id} approved={human_response.get('approved')}")
     try:
         run_async(resume_supervisor(ticket_id, human_response))
+        from app.workers.integration_tasks import queue_write_back
+        queue_write_back(ticket_id)
     except NoPausedRunError as e:
         logger.warning(str(e))
         run_async(hand_to_human(ticket_id))

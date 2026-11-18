@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import {
   LayoutDashboard, Ticket, MessageSquare, Bot,
-  LogOut, Brain, ChevronRight, BarChart3
+  LogOut, Brain, ChevronRight, BarChart3, Plug
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -13,6 +13,7 @@ const NAV = [
   { to: '/agents',    icon: Bot,             label: 'Agents'    },
   // The analytics API is closed to regular users, so the link is hidden for them
   { to: '/analytics', icon: BarChart3,       label: 'Analytics', roles: ['admin', 'agent', 'analyst'] },
+  { to: '/integrations', icon: Plug,         label: 'Integrations', roles: ['admin', 'agent', 'analyst'] },
 ]
 
 export default function Layout() {
