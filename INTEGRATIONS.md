@@ -140,23 +140,67 @@ The mock now calls NEXUS whenever an incident is created or changed, with the
 
 ## 3. Connect a real ServiceNow (free developer instance)
 
-1. Sign up at <https://developer.servicenow.com> and request a Personal
-   Developer Instance. Note its URL (`https://devNNNNN.service-now.com`) and
-   admin password.
-2. In the instance, create an integration user (**User Administration → Users → New**):
-   - User ID `nexus.integration`, **Web service access only** ticked
-   - **Time zone: GMT** (the "changed since" filter reads dates in the user's time zone)
-   - Role: `itil` (read and update incidents)
-   - Set a password
-3. Add to `.env`: `INTEGRATION_SERVICENOW_PASSWORD=<that password>`, then
-   `docker compose restart api celery-worker`.
-4. Integrations → **Add connection** → ServiceNow:
-   - Instance URL: `https://devNNNNN.service-now.com`
-   - Username: `nexus.integration`, Password variable: `INTEGRATION_SERVICENOW_PASSWORD`
-   - Leave "Link URL for people" empty
+Newer ServiceNow instances, including recent developer instances, often refuse
+password logins on the API: every API call gets **401**, even with the admin
+password, while the website login works. Use **OAuth**, as production
+integrations do. NEXUS fetches a token, reuses it, and renews it before it expires.
+
+### 3.1 Integration user (the account the token acts as)
+
+**User Administration → Users → New**:
+- User ID `nexus.integration`, Identity type **Machine**, tick **Internal Integration User**
+- Time zone **GMT** (the "changed since" filter reads dates in this user's time zone)
+- Save, then on the **Roles** tab add `itil` (read and update incidents)
+
+No password is needed for the client credentials grant.
+
+### 3.2 OAuth app
+
+**All → System OAuth → Application Registry → New**:
+- If you're offered **New Inbound Integration Experience**: choose it, then
+  **New integration → OAuth - Client credentials grant**. Give it a name
+  (`NEXUS AI`), set the **User** to `nexus.integration`, and save.
+- On older releases choose **Create an OAuth API endpoint for external
+  clients**, name it `NEXUS AI`, and save. If it has an **OAuth Application
+  User** field, set it to `nexus.integration`.
+
+Open the app and copy the **Client ID** and **Client Secret** (click the lock to reveal it).
+
+If the token test below answers `unsupported_grant_type` or `access_denied`,
+the client credentials grant is switched off: open `sys_properties.list`, find
+or create `glide.oauth.inbound.client.credential.grant_type.enabled`
+(type true|false) and set it to `true`.
+
+### 3.3 Test the token from Command Prompt
+
+```
+curl -s -X POST "https://devNNNNN.service-now.com/oauth_token.do" -d "grant_type=client_credentials&client_id=CLIENT_ID&client_secret=CLIENT_SECRET"
+```
+
+You should get JSON with an `access_token`. Then use it:
+
+```
+curl -s -o NUL -w "%{http_code}" -H "Authorization: Bearer ACCESS_TOKEN" "https://devNNNNN.service-now.com/api/now/table/incident?sysparm_limit=1"
+```
+
+**200** means NEXUS will work. 403 means the app's user is missing the `itil` role.
+
+### 3.4 Connect NEXUS
+
+1. Add to `.env`: `INTEGRATION_SERVICENOW_CLIENT_SECRET=<client secret>`, then
+   `docker compose up -d --force-recreate api celery-worker celery-beat`
+2. Integrations → **Add connection** → ServiceNow:
+   - Instance URL: `https://devNNNNN.service-now.com`; leave "Link URL for people" empty
+   - Authentication: **oauth_client_credentials**
+   - OAuth client ID: the client ID; client secret variable: `INTEGRATION_SERVICENOW_CLIENT_SECRET`
+   - Username and password variable: leave empty
+   - Untick **Run the agents on new tickets** for the first sync (developer
+     instances ship with dozens of demo incidents), then turn it back on
    - **Test settings** → **Add connection** → **Sync now**
 
-No code changes: it's the same connector the mock uses.
+Other login methods, if your instance allows them: **basic** (username +
+`INTEGRATION_SERVICENOW_PASSWORD`), **oauth_password** (client ID and secret
+plus a user's password), **bearer** (a fixed token you renew yourself).
 
 Notes:
 - Developer instances hibernate when unused. Wake yours from the developer
@@ -289,15 +333,15 @@ cd backend
 pytest tests/test_integrations.py -v
 ```
 
-28 tests: mappings, secret-name rules, both connectors against the in-process
-mock, the sync engine (import, idempotency, status rules, failure isolation,
+36 tests: mappings, secret-name rules, both connectors against the in-process
+mock, OAuth (token reuse, renewal, revocation, OAuth-only instances), the sync engine (import, idempotency, status rules, failure isolation,
 write-back), `link-existing`, the API with role checks, and the webhook. They
 use the same `nexusai_test` database as the other tests, never the one in `.env`.
 
 ### Files
 
 New:
-- `backend/app/integrations/` (framework, connectors, sync engine, CLI)
+- `backend/app/integrations/` (framework, connectors, OAuth token handling, sync engine, CLI)
 - `backend/app/models/integration.py`, `backend/app/schemas/integration.py`
 - `backend/app/api/v1/integrations.py`, `backend/app/workers/integration_tasks.py`
 - `backend/alembic/versions/b7c8d9e0f1a2_add_integration_tables.py`

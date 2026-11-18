@@ -76,6 +76,11 @@ class TicketConnector(ABC):
         return cleaned
 
     @classmethod
+    def credential_env_vars(cls, config: dict[str, Any]) -> list[str]:
+        """The INTEGRATION_* variables this config reads. Connectors with several login methods narrow this."""
+        return [config[f.key] for f in cls.config_fields if f.type == "env_var" and config.get(f.key)]
+
+    @classmethod
     def describe(cls) -> dict[str, Any]:
         return {
             "type": cls.type,

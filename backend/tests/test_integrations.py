@@ -566,3 +566,96 @@ async def test_unlinked_connection_can_be_deleted(mock_sn, db_session_factory, c
     connection = await _make_connection(db_session_factory)
     response = await client.delete(f"/api/v1/integrations/{connection.id}", headers=_auth(admin))
     assert response.status_code == 204
+
+
+# ─────────────────────────────────────────────────────────────
+#  OAuth (for instances that switch off API password logins)
+# ─────────────────────────────────────────────────────────────
+CLIENT_SECRET = "oauth-test-secret"
+
+
+@pytest.fixture
+def oauth_sn(mock_sn, monkeypatch):
+    """The mock with OAuth on and API password logins off, like an OAuth-only instance."""
+    from app.integrations import oauth
+    oauth.clear_cache()
+    mock_sn.CLIENT_ID = "nexus-client"
+    mock_sn.CLIENT_SECRET = CLIENT_SECRET
+    mock_sn.BASIC_AUTH = False
+    mock_sn.TOKEN_REQUESTS["count"] = 0
+    monkeypatch.setenv("INTEGRATION_SN_TEST_CLIENT_SECRET", CLIENT_SECRET)
+    yield mock_sn
+    oauth.clear_cache()
+
+
+OAUTH_CONFIG = {
+    **SN_CONFIG,
+    "auth_type": "oauth_client_credentials",
+    "client_id": "nexus-client",
+    "client_secret_env": "INTEGRATION_SN_TEST_CLIENT_SECRET",
+}
+
+
+@pytest.mark.asyncio
+async def test_basic_auth_refused_when_instance_is_oauth_only(oauth_sn):
+    result = await build_connector("servicenow", ServiceNowConnector.validate_config(SN_CONFIG)).test_connection()
+    assert not result.ok and "oauth_client_credentials" in result.message   # tells the admin what to switch to
+
+
+@pytest.mark.asyncio
+async def test_oauth_client_credentials_reads_and_writes(oauth_sn):
+    connector = build_connector("servicenow", ServiceNowConnector.validate_config(OAUTH_CONFIG))
+    assert (await connector.test_connection()).ok
+    tickets = await connector.fetch_updated(None)
+    await connector.post_note(tickets[0], "via OAuth")
+    assert len(tickets) == 3
+    assert oauth_sn.journal_for(tickets[0].external_id)[0]["value"] == "via OAuth"
+    assert oauth_sn.TOKEN_REQUESTS["count"] == 1          # one token, reused for every call
+
+
+@pytest.mark.asyncio
+async def test_oauth_password_grant(oauth_sn):
+    config = ServiceNowConnector.validate_config({**OAUTH_CONFIG, "auth_type": "oauth_password"})
+    assert (await build_connector("servicenow", config).test_connection()).ok
+
+
+@pytest.mark.asyncio
+async def test_oauth_token_renewed_before_expiry(oauth_sn):
+    oauth_sn.TOKEN_TTL = 30          # shorter than the 60-second renewal margin
+    connector = build_connector("servicenow", ServiceNowConnector.validate_config(OAUTH_CONFIG))
+    await connector.fetch_updated(None)
+    await connector.fetch_updated(None)
+    assert oauth_sn.TOKEN_REQUESTS["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_oauth_revoked_token_is_replaced_once(oauth_sn):
+    connector = build_connector("servicenow", ServiceNowConnector.validate_config(OAUTH_CONFIG))
+    await connector.fetch_updated(None)
+    oauth_sn._tokens.clear()           # ServiceNow revoked the token
+    assert len(await connector.fetch_updated(None)) == 3
+    assert oauth_sn.TOKEN_REQUESTS["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_oauth_bad_secret_has_a_clear_message(oauth_sn, monkeypatch):
+    monkeypatch.setenv("INTEGRATION_SN_TEST_CLIENT_SECRET", "wrong")
+    result = await build_connector("servicenow", ServiceNowConnector.validate_config(OAUTH_CONFIG)).test_connection()
+    assert not result.ok and "token request was refused" in result.message and "client ID and secret" in result.message
+
+
+def test_oauth_config_needs_client_id():
+    with pytest.raises(ValueError, match="OAuth client ID"):
+        ServiceNowConnector.validate_config({**OAUTH_CONFIG, "client_id": ""})
+
+
+@pytest.mark.asyncio
+async def test_oauth_sync_end_to_end(oauth_sn, db_session_factory, dispatched, client):
+    _, admin = await _make_user(db_session_factory, "admin-oauth", UserRole.ADMIN)
+    body = {"name": "ServiceNow (OAuth)", "connector_type": "servicenow", "config": OAUTH_CONFIG}
+    created = await client.post("/api/v1/integrations/", json=body, headers=_auth(admin))
+    assert created.status_code == 201, created.text
+    # Only the variable this login method needs is reported
+    assert created.json()["credentials"] == {"INTEGRATION_SN_TEST_CLIENT_SECRET": True}
+    sync = await client.post(f"/api/v1/integrations/{created.json()['id']}/sync?wait=true", headers=_auth(admin))
+    assert sync.json()["run"]["created"] == 3

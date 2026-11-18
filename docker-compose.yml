@@ -126,6 +126,10 @@ services:
       # Empty until you set it in .env: the mock then refuses every API call
       MOCK_SN_PASSWORD: ${INTEGRATION_SERVICENOW_MOCK_PASSWORD:-}
       MOCK_SN_DB: /data/servicenow.db
+      # Optional OAuth: client ID nexus-mock-client + this secret. MOCK_SN_BASIC_AUTH=false
+      # then makes the mock refuse password logins, like OAuth-only instances.
+      MOCK_SN_CLIENT_SECRET: ${INTEGRATION_SERVICENOW_MOCK_CLIENT_SECRET:-}
+      MOCK_SN_BASIC_AUTH: ${MOCK_SN_BASIC_AUTH:-true}
       # Optional push mode: set after creating the connection (see INTEGRATIONS.md)
       MOCK_SN_WEBHOOK_URL: ${MOCK_SN_WEBHOOK_URL:-}
       MOCK_SN_WEBHOOK_TOKEN: ${INTEGRATION_SERVICENOW_MOCK_WEBHOOK_SECRET:-}

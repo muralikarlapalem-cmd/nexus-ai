@@ -60,7 +60,7 @@ def _validate_webhook_env(name: str | None) -> str | None:
 
 def _credential_status(connection: IntegrationConnection) -> dict[str, bool]:
     cls = get_connector_class(connection.connector_type)
-    names = [connection.config.get(f.key) for f in cls.config_fields if f.type == "env_var"]
+    names = cls.credential_env_vars(connection.config)
     if connection.webhook_secret_env:
         names.append(connection.webhook_secret_env)
     return {n: int_secrets.is_set(n) for n in names if n}

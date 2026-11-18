@@ -11,6 +11,10 @@ against it unchanged.
     PATCH  /api/now/table/{table}/{sys_id}   work_notes / comments go to sys_journal_field
     PUT    /api/now/table/{table}/{sys_id}
     DELETE /api/now/table/{table}/{sys_id}
+    POST   /oauth_token.do                   OAuth tokens: client_credentials and password grants
+
+MOCK_SN_BASIC_AUTH=false makes the API refuse password logins, like instances
+that only allow OAuth.
 
 Plus a small web page at / to create and update incidents by hand, and an
 optional webhook that pushes changed incidents to NEXUS (like a Business Rule).
@@ -26,6 +30,7 @@ import re
 import secrets
 import sqlite3
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -39,6 +44,10 @@ DB_PATH = os.environ.get("MOCK_SN_DB", "/data/servicenow.db")
 API_USER = os.environ.get("MOCK_SN_USER", "nexus.integration")
 API_PASSWORD = os.environ.get("MOCK_SN_PASSWORD", "")
 API_TOKEN = os.environ.get("MOCK_SN_TOKEN", "")
+CLIENT_ID = os.environ.get("MOCK_SN_CLIENT_ID", "nexus-mock-client")
+CLIENT_SECRET = os.environ.get("MOCK_SN_CLIENT_SECRET", "")
+TOKEN_TTL = int(os.environ.get("MOCK_SN_TOKEN_TTL", "1800"))
+BASIC_AUTH = os.environ.get("MOCK_SN_BASIC_AUTH", "true").lower() != "false"
 WEBHOOK_URL = os.environ.get("MOCK_SN_WEBHOOK_URL", "")
 WEBHOOK_TOKEN = os.environ.get("MOCK_SN_WEBHOOK_TOKEN", "")
 SEED = os.environ.get("MOCK_SN_SEED", "demo")
@@ -277,9 +286,17 @@ def apply_query(records: list[dict[str, Any]], query: str) -> list[dict[str, Any
 # ─────────────────────────────────────────────────────────────
 #  Auth (Basic or Bearer, like ServiceNow)
 # ─────────────────────────────────────────────────────────────
+_tokens: dict[str, tuple[str, float]] = {}      # access token → (user, expires at)
+TOKEN_REQUESTS = {"count": 0}                   # tests check that tokens are reused
+
+
 def auth_user(request: Request) -> str:
     header = request.headers.get("authorization", "")
-    if header.lower().startswith("basic ") and API_PASSWORD:
+    if header.lower().startswith("bearer "):
+        issued = _tokens.get(header[7:])
+        if issued and issued[1] > time.time():
+            return issued[0]
+    if header.lower().startswith("basic ") and API_PASSWORD and BASIC_AUTH:
         try:
             user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
         except Exception:
@@ -473,6 +490,38 @@ async def import_records(tbl: str, request: Request):
         create(tbl, dict(item), user, allow_system_fields=True)
         created += 1
     return {"created": created, "skipped": skipped}
+
+
+@app.post("/oauth_token.do")
+async def oauth_token(request: Request):
+    """Same form fields and responses as ServiceNow's token endpoint."""
+    TOKEN_REQUESTS["count"] += 1
+    form = await request.form()
+    grant = form.get("grant_type", "")
+    if not CLIENT_SECRET or form.get("client_id") != CLIENT_ID or \
+            not secrets.compare_digest(str(form.get("client_secret", "")), CLIENT_SECRET):
+        return JSONResponse(status_code=401, content={"error_description": "access_denied", "error": "server_error"})
+    if grant == "client_credentials":
+        user = API_USER
+    elif grant == "password":
+        if not (secrets.compare_digest(str(form.get("username", "")), API_USER)
+                and API_PASSWORD and secrets.compare_digest(str(form.get("password", "")), API_PASSWORD)):
+            return JSONResponse(status_code=401, content={"error_description": "access_denied", "error": "server_error"})
+        user = API_USER
+    else:
+        return JSONResponse(status_code=400, content={"error": "unsupported_grant_type"})
+    token = secrets.token_urlsafe(32)
+    _tokens[token] = (user, time.time() + TOKEN_TTL)
+    return {"access_token": token, "refresh_token": secrets.token_urlsafe(32), "scope": "useraccount",
+            "token_type": "Bearer", "expires_in": TOKEN_TTL}
+
+
+@app.post("/mock/revoke-tokens")
+def revoke_tokens(request: Request):
+    """Mock-only: drop every issued token (tests use it to simulate revocation)."""
+    auth_user(request)
+    _tokens.clear()
+    return {"revoked": True}
 
 
 @app.get("/mock/health")
