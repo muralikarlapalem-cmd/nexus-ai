@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ticketApi, agentApi, integrationsApi } from '../api/tickets'
 import { useAuthStore } from '../store/authStore'
-import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2, Send } from 'lucide-react'
+import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2, Send, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
 import AgentPipeline, { NODE_LABELS } from '../components/AgentPipeline'
 import SourceBadge from '../components/SourceBadge'
@@ -168,6 +168,14 @@ export default function TicketDetailPage() {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
   const canReview = user?.role === 'admin' || user?.role === 'agent'
+
+  // Link to this ticket's latest agent run in LangSmith (agents and admins only)
+  const { data: langsmith } = useQuery({
+    queryKey: ['langsmith', id, ticket?.langsmith_run_id],
+    queryFn: () => agentApi.langsmith(id).then(r => r.data),
+    enabled: canReview && !!ticket?.langsmith_run_id,
+    staleTime: Infinity,
+  })
   const allowedNextStatuses = VALID_STATUS_TRANSITIONS[ticket?.status] || []
 
   // Where the run is right now. The trace endpoint reports the graph node that is executing.
@@ -317,7 +325,16 @@ export default function TicketDetailPage() {
           <div className="flex items-center gap-2 mb-4">
             <Bot size={14} className="text-indigo-400" />
             <h2 className="text-sm font-semibold text-white">Agent Trace</h2>
-            {inProgress && !withHuman && <Loader2 size={12} className="text-indigo-400 animate-spin ml-auto" />}
+            {inProgress && !withHuman && <Loader2 size={12} className="text-indigo-400 animate-spin" />}
+            {langsmith?.url ? (
+              <a href={langsmith.url} target="_blank" rel="noopener noreferrer"
+                title={`LangSmith run ${langsmith.run_id}`}
+                className="ml-auto inline-flex items-center gap-1 text-xs text-indigo-300 hover:text-white">
+                View in LangSmith <ExternalLink size={11} />
+              </a>
+            ) : langsmith?.run_id && (
+              <span className="ml-auto text-xs text-nexus-muted" title={langsmith.reason}>LangSmith link unavailable</span>
+            )}
           </div>
           <div className="space-y-3">
             {trace?.trace?.length ? trace.trace.map((msg, i) => (

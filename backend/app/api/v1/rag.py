@@ -24,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, require_agent_or_admin, require_admin
 from app.database import get_async_db
-from app.middleware.security import check_input_safety
+from app.middleware.security import check_input_safety, redact_documents, redact_pii
+from app.middleware.tracing import track_rag_latency
 from app.models.ticket import Ticket, TicketStatus
 from app.models.user import User
 from app.schemas.rag import (
@@ -94,6 +95,7 @@ async def ingest_text(
         },
     )
 
+    redact_documents([doc])
     result = await ingest_documents([doc], tenant_id=body.tenant_id)
     return IngestResponse(**result)
 
@@ -141,6 +143,7 @@ async def ingest_file(
 
         for doc in docs:
             check_input_safety(doc.page_content, source=f"rag_ingest_file:{file.filename}")
+        redact_documents(docs)
 
         result = await ingest_documents(docs, tenant_id=tenant_id)
         logger.info(f"File ingested: {file.filename} by {current_user.username}")
@@ -197,6 +200,7 @@ async def ingest_resolved_tickets(
     ]
 
     docs = load_tickets_batch(ticket_dicts)
+    redact_documents(docs)   # tickets created before PII redaction was switched on
     ingest_result = await ingest_documents(docs, tenant_id=tenant_id)
     logger.info(f"Ingested {len(tickets)} resolved tickets into RAG")
     return IngestResponse(**ingest_result)
@@ -251,14 +255,16 @@ async def query_knowledge_base(
     """
     _check_rag_available()
     check_input_safety(body.query, source="rag_query")
+    query, _ = redact_pii(body.query)   # personal data never goes to the LLM
 
-    result = await rag_query(
-        query=body.query,
-        tenant_id=body.tenant_id,
-        source_type_filter=body.source_type_filter,
-        category_filter=body.category_filter,
-        return_sources=body.return_sources,
-    )
+    async with track_rag_latency():
+        result = await rag_query(
+            query=query,
+            tenant_id=body.tenant_id,
+            source_type_filter=body.source_type_filter,
+            category_filter=body.category_filter,
+            return_sources=body.return_sources,
+        )
 
     return RAGQueryResponse(
         answer=result["answer"],
@@ -283,11 +289,13 @@ async def query_stream(
     _check_rag_available()
     # Must run before streaming starts, so the client gets a proper 422
     check_input_safety(query, source="rag_query_stream")
+    query, _ = redact_pii(query)   # personal data never goes to the LLM
 
     async def event_generator():
         try:
-            async for event in rag_query_stream(query=query, tenant_id=tenant_id):
-                yield f"data: {json.dumps(event)}\n\n"
+            async with track_rag_latency():
+                async for event in rag_query_stream(query=query, tenant_id=tenant_id):
+                    yield f"data: {json.dumps(event)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
             logger.exception(f"Streaming knowledge query failed: {e}")

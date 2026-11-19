@@ -326,3 +326,55 @@ async def get_agent_trace(
         }
     except Exception as e:
         return {"trace": [], "error": str(e)}
+
+
+# ── LangSmith trace link ──────────────────────────────────────
+_langsmith_project_cache: dict[str, tuple[str, str]] = {}   # project name → (host url, project id)
+
+
+def _langsmith_base(project_name: str) -> str:
+    """
+    URL prefix for runs in this LangSmith project, e.g.
+    https://smith.langchain.com/o/<org>/projects/p/<project>. Looked up once per process.
+    """
+    if project_name not in _langsmith_project_cache:
+        from types import SimpleNamespace
+
+        from langsmith import Client
+
+        from app.config import settings
+
+        client = Client(api_key=settings.langsmith_api_key)
+        project_id = client.read_project(project_name=project_name).id
+        probe = client.get_run_url(run=SimpleNamespace(id="RUN"), project_id=project_id)
+        _langsmith_project_cache[project_name] = (probe.split("/r/RUN")[0], str(project_id))
+    return _langsmith_project_cache[project_name][0]
+
+
+@router.get("/langsmith/{ticket_id}")
+async def get_langsmith_link(
+    ticket_id: uuid.UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(require_agent_or_admin),
+):
+    """
+    Link to the LangSmith trace of the ticket's latest agent run.
+    {"run_id": str | None, "url": str | None, "reason": str (when url is None)}
+    """
+    import asyncio
+
+    from app.config import settings
+
+    ticket = (await db.execute(select(Ticket).where(Ticket.id == ticket_id))).scalar_one_or_none()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    run_id = ticket.langsmith_run_id
+    if not run_id:
+        return {"run_id": None, "url": None, "reason": "No traced agent run for this ticket yet"}
+    if not settings.langsmith_api_key:
+        return {"run_id": run_id, "url": None, "reason": "LangSmith is not configured"}
+    try:
+        base = await asyncio.to_thread(_langsmith_base, settings.langsmith_project)
+    except Exception as e:
+        return {"run_id": run_id, "url": None, "reason": f"Could not reach LangSmith: {e}"}
+    return {"run_id": run_id, "url": f"{base}/r/{run_id}?poll=true"}

@@ -12,13 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
 # CPU-only torch first (~180 MB). The reranker runs on the CPU; without this,
 # sentence-transformers pulls the CUDA build (several GB of GPU libraries)
 # and a rebuild took over an hour on a slow connection.
+# It's its own layer, before requirements.txt is copied, so a change to
+# requirements.txt doesn't download torch again.
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.0 && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.0
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 
 # ── Stage 2: runtime ──────────────────────────────────────────

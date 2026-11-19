@@ -28,6 +28,7 @@ export const agentApi = {
   resume: (id, data)  => client.post(`/agents/resume/${id}`, data),
   info:   ()          => client.get('/agents/info'),
   active: (params)    => client.get('/agents/active', { params }),
+  langsmith: (id)     => client.get(`/agents/langsmith/${id}`),
 }
 
 export const analyticsApi = {

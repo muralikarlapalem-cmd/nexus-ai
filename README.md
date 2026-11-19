@@ -41,7 +41,7 @@ LLM calls use **OpenAI** via `langchain_openai.ChatOpenAI` (default model `gpt-4
 | 2 | RAG Pipeline: Qdrant + BM25 + reranker | ✅ Implemented |
 | 3 | Agents + LangGraph Orchestration | ✅ Implemented (triage, security, diagnosis, knowledge, HITL) |
 | 4 | React Frontend Dashboard | ✅ Implemented |
-| 5 | Tracing + Evals + Security | 🟡 Partial: RAGAS and triage evals exist; scores below CI thresholds; `run_eval_suite` Celery task is a stub; PII detection is regex-only |
+| 5 | Tracing + Evals + Security | 🟡 Partial: PII redaction (Presidio), Prometheus + Grafana, OpenTelemetry + Jaeger and LangSmith trace links are wired in ([OBSERVABILITY.md](OBSERVABILITY.md)). RAGAS and triage evals exist but score below CI thresholds; `run_eval_suite` Celery task is a stub |
 | 6 | Fine-Tuning Pipeline (QLoRA) | 🟡 Scaffolded: dataset export, notebook, Ollama deploy script |
 | 7 | Integrations: ServiceNow + generic REST connectors | ✅ Implemented, with a mock ServiceNow for local testing. See [INTEGRATIONS.md](INTEGRATIONS.md) |
 
@@ -86,6 +86,11 @@ docker compose up -d
 | FastAPI | `http://localhost:8000` (docs at `/docs`) |
 | Celery worker | queues `default, agents, rag, evals` |
 | Celery beat | periodic jobs, see below |
+| Grafana | `http://localhost:3000` (NEXUS AI dashboard) |
+| Prometheus | `http://localhost:9090` |
+| Jaeger (OpenTelemetry traces) | `http://localhost:16686` |
+
+Monitoring, tracing and PII redaction: [OBSERVABILITY.md](OBSERVABILITY.md).
 
 ### 3. Apply DB migrations
 ```bash
@@ -228,6 +233,7 @@ All paths are prefixed with `/api/v1`.
 | GET | `/agents/status/{ticket_id}` | Bearer | Ticket status + agent outputs so far |
 | POST | `/agents/resume/{ticket_id}` | Agent/Admin | Resume after human review: `{"approved": bool, "next_agent": str, "notes": str}`. Saves the outcome to the ticket; returns `"paused"` if the run stopped for review again, 409 if nothing is paused |
 | GET | `/agents/trace/{ticket_id}` | Bearer | Agent message trace, current node, iteration count |
+| GET | `/agents/langsmith/{ticket_id}` | Agent/Admin | Link to the ticket's latest agent run in LangSmith |
 
 ### Integrations
 

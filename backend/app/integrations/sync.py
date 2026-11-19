@@ -121,6 +121,13 @@ def _connector_for(connection: IntegrationConnection) -> TicketConnector:
 # ─────────────────────────────────────────────────────────────
 #  Upsert one external ticket
 # ─────────────────────────────────────────────────────────────
+def _redacted_text(ext: ExternalTicket) -> tuple[str, str, list[str]]:
+    """Title and description with personal data removed. The source system keeps the original."""
+    from app.middleware.security import redact_fields
+    clean, pii_found = redact_fields(title=ext.title, description=ext.description or ext.title)
+    return (clean["title"] or "")[:500], clean["description"] or "", pii_found
+
+
 async def upsert_external_ticket(
     db, connection: IntegrationConnection, ext: ExternalTicket, bot: User
 ) -> tuple[str, Ticket]:
@@ -131,17 +138,18 @@ async def upsert_external_ticket(
             ExternalTicketLink.external_id == ext.external_id,
         )
     )).scalar_one_or_none()
-    content_hash = ext.content_hash()
+    content_hash = ext.content_hash()   # of the source data, so change detection still works
     now = _now()
     label = ext.external_number or ext.external_id
 
     if link is None:
+        title, description, pii_found = _redacted_text(ext)
         priority = TicketPriority(ext.priority)
         status = TicketStatus(ext.status)
         created_at = ext.created_at or now
         ticket = Ticket(
-            title=ext.title,
-            description=ext.description or ext.title,
+            title=title,
+            description=description,
             priority=priority,
             category=TicketCategory(ext.category),
             status=status,
@@ -175,8 +183,11 @@ async def upsert_external_ticket(
         db.add(AuditLog(
             user_id=None, action="integration.ticket_import", resource_type="ticket",
             resource_id=str(ticket.id),
-            details={"connection": connection.name, "external": label, "ticket_number": ticket.ticket_number},
+            details={"connection": connection.name, "external": label, "ticket_number": ticket.ticket_number,
+                     **({"pii_redacted": pii_found} if pii_found else {})},
         ))
+        from app.middleware.tracing import record_ticket_created
+        record_ticket_created(priority.value, ext.category, source=connection.connector_type)
         return "created", ticket
 
     ticket = (await db.execute(select(Ticket).where(Ticket.id == link.ticket_id))).scalar_one()
@@ -188,8 +199,9 @@ async def upsert_external_ticket(
         return "unchanged", ticket
 
     # Content from the source wins for the fields it owns
-    ticket.title = ext.title
-    ticket.description = ext.description or ext.title
+    title, description, _ = _redacted_text(ext)
+    ticket.title = title
+    ticket.description = description
     ticket.priority = TicketPriority(ext.priority)
     ticket.category = TicketCategory(ext.category)
 
@@ -267,6 +279,12 @@ async def _finish_run(run_id: uuid.UUID, counts: dict[str, Any], status: str, er
         run.error = error
         run.details = {"errors": counts.get("errors", [])} if counts.get("errors") else None
         run.finished_at = _now()
+        connection = await db.get(IntegrationConnection, run.connection_id)
+        from app.middleware.tracing import record_integration_sync
+        record_integration_sync(
+            connection.name if connection else str(run.connection_id), status,
+            {k: counts.get(k, 0) for k in ("created", "updated", "unchanged", "failed")},
+        )
         return run_summary(run)
 
 

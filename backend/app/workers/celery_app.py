@@ -8,7 +8,8 @@ Phase 3: process_ticket_task will invoke the LangGraph supervisor.
 
 import asyncio
 from celery import Celery
-from celery.signals import worker_process_init
+import time
+from celery.signals import worker_init, worker_process_init, worker_process_shutdown
 from celery.utils.log import get_task_logger
 from kombu import Queue
 
@@ -95,6 +96,36 @@ def _warm_up_rag_models(**_):
         logger.warning(f"RAG warm-up skipped: {e}")
 
 
+# ── Prometheus: one metrics endpoint for all worker processes ─
+@worker_init.connect
+def _start_metrics_server(**_):
+    """Main worker process: serve the combined metrics of all child processes on :9101."""
+    from app.middleware.worker_metrics import start_worker_metrics_server
+    start_worker_metrics_server(9101)
+
+
+@worker_process_shutdown.connect
+def _metrics_process_exit(pid=None, **_):
+    import os
+    from app.middleware.worker_metrics import mark_worker_process_dead
+    mark_worker_process_dead(pid or os.getpid())
+
+
+def _run_agents_with_metrics(coro):
+    """Run a supervisor coroutine and record its outcome and duration."""
+    from app.middleware.tracing import agent_run_outcome, record_agent_run
+
+    start = time.perf_counter()
+    try:
+        final_state = run_async(coro)
+    except Exception as e:
+        if type(e).__name__ != "NoPausedRunError":   # nothing ran
+            record_agent_run("error", time.perf_counter() - start)
+        raise
+    record_agent_run(agent_run_outcome(final_state), time.perf_counter() - start)
+    return final_state
+
+
 # ── Helper: run async code inside a Celery task ───────────────
 def run_async(coro):
     """
@@ -167,7 +198,7 @@ def process_ticket_task(ticket_id: str):
     """
     logger.info(f"process_ticket_task: ticket_id={ticket_id}")
     from agents.supervisor import run_supervisor
-    run_async(run_supervisor(ticket_id))
+    _run_agents_with_metrics(run_supervisor(ticket_id))
 
     # Tickets imported from ServiceNow etc.: post the result back as a work note
     from app.workers.integration_tasks import queue_write_back
@@ -187,7 +218,7 @@ def resume_ticket_task(ticket_id: str, human_response: dict):
 
     logger.info(f"resume_ticket_task: ticket_id={ticket_id} approved={human_response.get('approved')}")
     try:
-        run_async(resume_supervisor(ticket_id, human_response))
+        _run_agents_with_metrics(resume_supervisor(ticket_id, human_response))
         from app.workers.integration_tasks import queue_write_back
         queue_write_back(ticket_id)
     except NoPausedRunError as e:

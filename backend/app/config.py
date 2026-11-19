@@ -79,6 +79,22 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
     rate_limit_per_minute: int = 60
 
+    # PII redaction (Presidio): personal data is removed from ticket text, notes,
+    # AI queries and knowledge-base documents before they're stored or sent to the LLM
+    pii_redaction_enabled: bool = True
+    pii_spacy_model: str = "en_core_web_sm"
+    pii_entities: list[str] = [
+        "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD",
+        "IBAN_CODE", "US_SSN", "IN_PAN", "IN_AADHAAR",
+    ]
+    pii_score_threshold: float = 0.35
+
+    # ── Observability ────────────────────────────────────────
+    # OpenTelemetry request + database tracing, sent to Jaeger (Zipkin format).
+    # Empty = tracing off.
+    otel_zipkin_endpoint: str = ""
+    otel_service_name: str = "nexus-api"
+
     # ── Derived helpers ───────────────────────────────────────
     @property
     def is_production(self) -> bool:

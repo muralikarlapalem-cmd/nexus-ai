@@ -148,6 +148,47 @@ async def get_supervisor_graph():
         yield graph
 
         
+# ── LangSmith: give each run a known ID so the ticket can link to its trace ──
+def _langsmith_enabled() -> bool:
+    return bool(settings.langsmith_api_key and settings.langchain_tracing_v2)
+
+
+def _run_config(ticket_id: str, ticket_number: str, kind: str) -> tuple[dict, str | None]:
+    """
+    LangGraph config for one supervisor run. When LangSmith tracing is on, the
+    root run gets an ID we choose (saved on the ticket) plus a readable name,
+    tags and metadata, so the trace is easy to find in LangSmith.
+    Returns (config, run_id or None).
+    """
+    import uuid as _uuid
+
+    config: dict = {"configurable": {"thread_id": str(ticket_id)}}
+    if not _langsmith_enabled():
+        return config, None
+    run_id = _uuid.uuid4()
+    config.update({
+        "run_id": run_id,
+        "run_name": f"NEXUS {ticket_number} ({kind})",
+        "tags": ["nexus", kind],
+        "metadata": {"ticket_id": str(ticket_id), "ticket_number": ticket_number},
+    })
+    return config, str(run_id)
+
+
+async def _save_run_id(ticket_id: str, run_id: str | None) -> None:
+    """Save the trace ID before the run starts, so even a run that crashes links to its trace."""
+    if not run_id:
+        return
+    from app.database import get_db_context
+    from app.models.ticket import Ticket
+    from sqlalchemy import select
+
+    async with get_db_context() as db:
+        t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id))).scalar_one_or_none()
+        if t:
+            t.langsmith_run_id = run_id
+
+
 # ── Public entry point ────────────────────────────────────────
 async def run_supervisor(ticket_id: str) -> dict:
     """
@@ -205,15 +246,18 @@ async def run_supervisor(ticket_id: str) -> dict:
         "langsmith_run_id": None,
     }
 
-    config = {"configurable": {"thread_id": str(ticket.id)}}
+    config, run_id = _run_config(str(ticket.id), ticket.ticket_number, "run")
+    initial_state["langsmith_run_id"] = run_id
 
-    # Update ticket status to IN_PROGRESS
+    # Update ticket status to IN_PROGRESS (and link it to this run's trace)
     async with get_db_context() as db:
         result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
         t = result.scalar_one_or_none()
         if t:
             t.status = TicketStatus.IN_PROGRESS
             t.assigned_agent = AssignedAgent.TRIAGE
+            if run_id:
+                t.langsmith_run_id = run_id
 
     # Run the graph
     async with get_supervisor_graph() as graph:
@@ -236,12 +280,16 @@ async def resume_supervisor(ticket_id: str, human_response: dict) -> dict:
     """
     from langgraph.types import Command
 
-    config = {"configurable": {"thread_id": str(ticket_id)}}
     async with get_supervisor_graph() as graph:
-        snapshot = await graph.aget_state(config)
+        snapshot = await graph.aget_state({"configurable": {"thread_id": str(ticket_id)}})
         if not snapshot or not snapshot.next:
             raise NoPausedRunError(f"No paused agent run for ticket {ticket_id}")
+        ticket_number = (getattr(snapshot, "values", None) or {}).get("ticket_number", str(ticket_id))
+        config, run_id = _run_config(str(ticket_id), ticket_number, "resume")
+        await _save_run_id(ticket_id, run_id)
         final_state = await graph.ainvoke(Command(resume=human_response), config=config)
+        if run_id:
+            final_state = {**final_state, "langsmith_run_id": run_id}
 
     await persist_final_state(
         ticket_id, final_state, human_rejected=not human_response.get("approved", False)

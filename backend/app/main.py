@@ -20,7 +20,8 @@ from slowapi.util import get_remote_address
 
 from app.api.v1 import auth, health, tickets, users, rag, agents, analytics, integrations
 from app.config import settings
-from app.database import close_db, init_db
+from app.database import close_db, engine, init_db
+from app.middleware.tracing import setup_metrics, setup_opentelemetry
 
 
 # ── Rate limiter ──────────────────────────────────────────────
@@ -55,6 +56,12 @@ async def lifespan(app: FastAPI):
     except ImportError as e:
         logger.warning(f"RAG warm-up skipped: {e}")
 
+    # Load the PII redaction engine in the background too (~1s), so the first
+    # ticket isn't slower than the rest
+    import threading
+    from app.middleware.security import warm_up_pii
+    threading.Thread(target=warm_up_pii, name="pii-warm-up", daemon=True).start()
+
     yield
 
     await close_db()
@@ -70,6 +77,10 @@ app = FastAPI(
     redoc_url="/redoc" if not settings.is_production else None,
     lifespan=lifespan,
 )
+
+# ── Observability: Prometheus /metrics and OpenTelemetry traces ─
+setup_metrics(app)
+setup_opentelemetry(app, engine)
 
 # ── Rate limiter middleware ────────────────────────────────────
 app.state.limiter = limiter
@@ -102,6 +113,10 @@ async def logging_middleware(request: Request, call_next):
     duration_ms = (time.perf_counter() - start) * 1000
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time-Ms"] = f"{duration_ms:.2f}"
+
+    # Prometheus scrapes /metrics every 15 seconds; don't fill the log with it
+    if request.url.path == "/metrics":
+        return response
 
     logger.info(
         f"{request.method} {request.url.path} → {response.status_code} "

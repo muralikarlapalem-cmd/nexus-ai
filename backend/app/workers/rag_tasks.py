@@ -72,6 +72,8 @@ def ingest_resolved_tickets_task(tenant_id: str = "default", limit: int = 200):
             ]
 
             docs = load_tickets_batch(ticket_dicts)
+            from app.middleware.security import redact_documents
+            redact_documents(docs)   # tickets created before PII redaction was switched on
             result_summary = await ingest_documents(docs, tenant_id=tenant_id)
 
             # Mark tickets as indexed
@@ -118,6 +120,8 @@ def ingest_document_task(file_path: str, tenant_id: str = "default", source_type
         else:
             docs = load_text(path, metadata=metadata)
 
+        from app.middleware.security import redact_documents
+        redact_documents(docs)
         result = await ingest_documents(docs, tenant_id=tenant_id)
         logger.info(f"Ingested {file_path}: {result}")
 

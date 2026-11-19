@@ -1,0 +1,20 @@
+# NEXUS AI · Prometheus scrape config (mounted by docker-compose)
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # FastAPI: HTTP requests, tickets created via the API, AI query latency, PII redactions
+  - job_name: nexus-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+
+  # Celery worker: agent runs, integration syncs, tickets imported from ServiceNow
+  - job_name: nexus-worker
+    static_configs:
+      - targets: ["celery-worker:9101"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

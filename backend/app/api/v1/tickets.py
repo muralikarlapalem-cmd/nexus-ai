@@ -17,7 +17,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, require_agent_or_admin
 from app.database import get_async_db
-from app.middleware.security import check_input_safety
+from app.middleware.security import check_input_safety, redact_fields, redact_pii
+from app.middleware.tracing import record_ticket_created
 from app.models.audit_log import AuditLog
 from app.models.ticket import Ticket, TicketPriority, TicketStatus, TicketStatusHistory, VALID_STATUS_TRANSITIONS
 from app.models.user import User, UserRole
@@ -60,14 +61,17 @@ async def create_ticket(
     # Ticket text is fed to every agent's LLM prompt and later ingested into RAG
     check_input_safety(f"{body.title}\n{body.description}", source="ticket")
 
+    # Remove personal data before the text is stored or sent to any LLM
+    clean, pii_found = redact_fields(title=body.title, description=body.description)
+
     # Generate sequential ticket number
     count_result = await db.execute(select(func.count()).select_from(Ticket))
     seq = (count_result.scalar_one() or 0) + 1
 
     ticket = Ticket(
         ticket_number=_generate_ticket_number(seq),
-        title=body.title,
-        description=body.description,
+        title=clean["title"][:500],
+        description=clean["description"],
         category=body.category,
         priority=body.priority,
         created_by_id=current_user.id,
@@ -82,8 +86,10 @@ async def create_ticket(
         action="ticket.create",
         resource_type="ticket",
         resource_id=str(ticket.id),
-        details={"ticket_number": ticket.ticket_number, "priority": body.priority.value},
+        details={"ticket_number": ticket.ticket_number, "priority": body.priority.value,
+                 **({"pii_redacted": pii_found} if pii_found else {})},
     ))
+    record_ticket_created(body.priority.value, body.category.value, source="nexus")
 
     await db.refresh(ticket, ["created_by_user"])
 
@@ -201,6 +207,9 @@ async def update_ticket(
         check_input_safety(body.resolution_notes, source="resolution_notes")
 
     update_data = body.model_dump(exclude_none=True)
+    pii_found: list[str] = []
+    if update_data.get("resolution_notes"):
+        update_data["resolution_notes"], pii_found = redact_pii(update_data["resolution_notes"])
     old_status = ticket.status
 
     for field, value in update_data.items():
@@ -217,7 +226,8 @@ async def update_ticket(
         action="ticket.update",
         resource_type="ticket",
         resource_id=str(ticket.id),
-        details={**update_data, "old_status": old_status.value if old_status else None},
+        details={**update_data, "old_status": old_status.value if old_status else None,
+                 **({"pii_redacted": pii_found} if pii_found else {})},
     ))
 
     return ticket
@@ -249,10 +259,11 @@ async def change_status(
         )
 
     ticket.status = body.status
-    if body.note:
+    note, pii_found = redact_pii(body.note) if body.note else (body.note, [])
+    if note:
         # The note becomes resolution_notes, which is ingested into RAG
-        check_input_safety(body.note, source="status_note")
-        ticket.resolution_notes = body.note
+        check_input_safety(note, source="status_note")
+        ticket.resolution_notes = note
 
     if body.status == TicketStatus.RESOLVED and not ticket.resolved_at:
         ticket.resolved_at = datetime.now(timezone.utc)
@@ -263,7 +274,7 @@ async def change_status(
         old_status=old_status,
         new_status=body.status,
         changed_by_id=current_user.id,
-        reason=body.note,
+        reason=note,
     ))
 
     db.add(AuditLog(
@@ -271,7 +282,8 @@ async def change_status(
         action="ticket.status_change",
         resource_type="ticket",
         resource_id=str(ticket.id),
-        details={"old_status": old_status.value, "new_status": body.status.value, "note": body.note},
+        details={"old_status": old_status.value, "new_status": body.status.value, "note": note,
+                 **({"pii_redacted": pii_found} if pii_found else {})},
     ))
 
     logger.info(f"Ticket {ticket.ticket_number}: {old_status} → {body.status} by {current_user.username}")
