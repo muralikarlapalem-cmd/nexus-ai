@@ -156,26 +156,39 @@ No password is needed for the client credentials grant.
 
 ### 3.2 OAuth app
 
-**All → System OAuth → Application Registry → New**:
+Do this as **admin**. **All → System OAuth → Application Registry → New**:
 - If you're offered **New Inbound Integration Experience**: choose it, then
-  **New integration → OAuth - Client credentials grant**. Give it a name
-  (`NEXUS AI`), set the **User** to `nexus.integration`, and save.
+  **New integration → OAuth - Client credentials grant**. Fill in **Name**
+  `NEXUS AI`, **Provider name** `NEXUS AI` (a free-text label for the caller;
+  type it rather than picking Auth0/Okta etc.), **OAuth application user**
+  `nexus.integration`, and save.
 - On older releases choose **Create an OAuth API endpoint for external
   clients**, name it `NEXUS AI`, and save. If it has an **OAuth Application
   User** field, set it to `nexus.integration`.
+- Don't choose "Connect to a third party OAuth Provider", "Configure an OIDC
+  provider" or the JWT option: those are for other purposes.
 
 Open the app and copy the **Client ID** and **Client Secret** (click the lock to reveal it).
 
-If the token test below answers `unsupported_grant_type` or `access_denied`,
-the client credentials grant is switched off: open `sys_properties.list`, find
-or create `glide.oauth.inbound.client.credential.grant_type.enabled`
-(type true|false) and set it to `true`.
+**Switch on client credentials logins.** A yellow banner on the form warns
+about this; on a new developer instance the setting usually doesn't exist yet,
+and the token request fails with `access_denied` until it does. Open
+
+`https://devNNNNN.service-now.com/sys_properties_list.do?sysparm_query=nameLIKEclient.credential`
+
+(or type `sys_properties.list` in the **All** menu filter and press Enter).
+Open `glide.oauth.inbound.client.credential.grant_type.enabled` and set
+**Value** to `true`, or if it isn't listed, click **New** and create it with
+that name, **Type** `true | false` and **Value** `true`.
 
 ### 3.3 Test the token from Command Prompt
 
 ```
-curl -s -X POST "https://devNNNNN.service-now.com/oauth_token.do" -d "grant_type=client_credentials&client_id=CLIENT_ID&client_secret=CLIENT_SECRET"
+curl -s -X POST "https://devNNNNN.service-now.com/oauth_token.do" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_id=CLIENT_ID" --data-urlencode "client_secret=CLIENT_SECRET"
 ```
+
+(`--data-urlencode` matters: client secrets can contain `+` or `&`, which plain
+`-d` would change.)
 
 You should get JSON with an `access_token`. Then use it:
 
