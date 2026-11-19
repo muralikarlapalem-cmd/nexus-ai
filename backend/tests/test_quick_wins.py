@@ -159,6 +159,17 @@ async def test_metrics_endpoint(agent_token):
                               for line in text.splitlines() if line.startswith("nexus_http_requests_total{")]
 
 
+@pytest.mark.asyncio
+async def test_known_series_start_at_zero():
+    """A counter that first appears at 1 is invisible to increase(); so known series start at 0."""
+    async with client() as c:
+        text = (await c.get("/metrics")).text
+    # Present before anything of that kind happened (other tests may have counted some already)
+    assert 'nexus_pii_redactions_total{entity="IBAN_CODE"}' in text
+    assert 'nexus_agent_runs_total{outcome="needs_human"}' in text
+    assert 'nexus_tickets_created_total{category="database",priority="critical",source="servicenow"}' in text
+
+
 @pytest.mark.parametrize("state, outcome", [
     ({"final_resolution": "fixed"}, "resolved"),
     ({"final_resolution": "", "hitl_required": True}, "needs_human"),
@@ -195,6 +206,8 @@ def test_worker_metrics_are_combined_across_processes(tmp_path):
     assert out.returncode == 0, out.stderr
     assert 'nexus_agent_runs_total{outcome="resolved"} 3.0' in out.stdout
     assert "nexus_agent_run_seconds_count 3.0" in out.stdout
+    # Created at 0 by the main process before any run, so Prometheus sees the first one
+    assert 'nexus_agent_runs_total{outcome="error"} 0.0' in out.stdout
 
 
 # ─────────────────────────────────────────────────────────────

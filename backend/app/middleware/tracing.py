@@ -80,6 +80,44 @@ except ImportError:
     logger.warning("prometheus_client not installed — metrics disabled")
 
 
+# Prometheus' increase() can't see a counter's first event if the series only
+# appears at that moment (it starts at 1, with no earlier 0 to compare with), so
+# a fresh dashboard showed 0 after the first ticket. Every label combination we
+# know in advance is therefore created at 0 when the process starts.
+AGENT_OUTCOMES = ("resolved", "needs_human", "error")
+SYNC_RESULTS = ("success", "partial", "failed", "skipped")
+SYNC_TICKET_OUTCOMES = ("created", "updated", "unchanged", "failed")
+
+
+def init_metric_labels(connection_names: list[str] | None = None) -> None:
+    """Create the known metric series at 0. connection_names: integration connections."""
+    if not _METRICS_AVAILABLE:
+        return
+    try:
+        from app.models.ticket import TicketCategory, TicketPriority
+
+        try:
+            from app.integrations.registry import _REGISTRY
+            sources = ["nexus", *sorted(_REGISTRY)]
+        except Exception:
+            sources = ["nexus", "servicenow", "generic_rest"]
+        for priority in TicketPriority:
+            for category in TicketCategory:
+                for source in sources:
+                    TICKET_CREATED.labels(priority=priority.value, category=category.value, source=source)
+        for outcome in AGENT_OUTCOMES:
+            AGENT_RUN_COUNT.labels(outcome=outcome)
+        for entity in settings.pii_entities:
+            PII_REDACTIONS.labels(entity=entity)
+        for name in connection_names or []:
+            for result in SYNC_RESULTS:
+                INTEGRATION_SYNCS.labels(connection=name, result=result)
+            for outcome in SYNC_TICKET_OUTCOMES:
+                INTEGRATION_TICKETS.labels(connection=name, outcome=outcome)
+    except Exception as e:
+        logger.warning(f"Could not pre-create metric series: {e}")
+
+
 @asynccontextmanager
 async def track_rag_latency():
     """Context manager to measure and record RAG query duration."""
@@ -150,6 +188,7 @@ def setup_metrics(app) -> None:
         skip_paths=["/metrics", "/api/v1/health", "/api/v1/health/ready"],
     )
     app.add_route("/metrics", handle_metrics, include_in_schema=False)
+    init_metric_labels()
 
 
 # ── OpenTelemetry ──────────────────────────────────────────────
