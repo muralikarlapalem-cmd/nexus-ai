@@ -243,3 +243,66 @@ def upsert_user(admin: KeycloakAdmin, username: str, email: str, role: UserRole,
         admin.post(f"/{realm}/users/{user_id}/role-mappings/realm", [role_rep])
     logger.info(f"Keycloak user {username} {outcome} with role {role.value}")
     return outcome
+
+
+# ── Diagnosing sign-in problems (python -m app.cli sso-check) ──
+def check_user(admin: KeycloakAdmin, username: str) -> dict:
+    """Everything Keycloak knows that decides whether this person can sign in."""
+    realm = settings.keycloak_realm
+    realm_rep = admin.get(f"/{realm}") or {}
+    info: dict[str, Any] = {
+        "realm_exists": bool(realm_rep),
+        "brute_force_protected": realm_rep.get("bruteForceProtected"),
+        "permanent_lockout": realm_rep.get("permanentLockout"),
+        "failures_before_lock": realm_rep.get("failureFactor"),
+        "found": False,
+    }
+    if not realm_rep:
+        return info
+    users = admin.get(f"/{realm}/users", username=username, exact="true") or []
+    if not users:
+        users = [u for u in (admin.get(f"/{realm}/users", email=username, exact="true") or [])]
+    if not users:
+        info["similar_usernames"] = [u["username"] for u in (admin.get(f"/{realm}/users", search=username[:4]) or [])]
+        return info
+    u = users[0]
+    uid = u["id"]
+    creds = admin.get(f"/{realm}/users/{uid}/credentials") or []
+    roles = admin.get(f"/{realm}/users/{uid}/role-mappings/realm") or []
+    lock = admin.get(f"/{realm}/attack-detection/brute-force/users/{uid}") or {}
+    info.update({
+        "found": True,
+        "id": uid,
+        "username": u.get("username"),
+        "email": u.get("email"),
+        "enabled": u.get("enabled"),
+        "email_verified": u.get("emailVerified"),
+        "first_name": u.get("firstName"),
+        "last_name": u.get("lastName"),
+        "required_actions": u.get("requiredActions") or [],
+        "password_set": any(c.get("type") == "password" for c in creds),
+        "nexus_roles": sorted(r["name"] for r in roles if r["name"] in ROLE_FOR_REALM_ROLE),
+        "locked": bool(lock.get("disabled")),
+        "failed_attempts": lock.get("numFailures", 0),
+    })
+    return info
+
+
+def unlock_user(admin: KeycloakAdmin, user_id: str) -> None:
+    """Clear Keycloak's lock after too many wrong passwords."""
+    admin.delete(f"/{settings.keycloak_realm}/attack-detection/brute-force/users/{user_id}")
+
+
+def test_password(username: str, password: str, transport: httpx.BaseTransport | None = None) -> tuple[bool, str]:
+    """
+    Try the password against the realm (through Keycloak's built-in admin-cli
+    client, which allows it). Returns (ok, Keycloak's reason).
+    """
+    with httpx.Client(timeout=20, transport=transport) as http:
+        r = http.post(f"{internal_url()}/realms/{settings.keycloak_realm}/protocol/openid-connect/token", data={
+            "grant_type": "password", "client_id": "admin-cli", "username": username, "password": password,
+        })
+    if r.status_code == 200:
+        return True, "password accepted"
+    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    return False, body.get("error_description") or body.get("error") or f"HTTP {r.status_code}"

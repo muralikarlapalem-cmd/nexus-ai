@@ -9,6 +9,7 @@ Usage (inside the api container):
     python -m app.cli redact-pii [--apply]       # remove personal data from existing tickets
     python -m app.cli sso-setup                  # create/repair the Keycloak realm for SSO
     python -m app.cli sso-user <username> --email <e-mail> --role admin|agent|analyst|user
+    python -m app.cli sso-check <username> [--test-password] [--unlock]   # why can't they sign in?
 """
 
 import argparse
@@ -165,6 +166,54 @@ def sso_user(username: str, email: str, role: str, full_name: str | None, keep_p
     return 0
 
 
+def sso_check(username: str, test_pw: bool, unlock: bool) -> int:
+    import getpass
+
+    from app.core.sso import KeycloakAdmin, check_user, test_password, unlock_user
+
+    try:
+        admin = KeycloakAdmin()
+        info = check_user(admin, username)
+    except Exception as e:
+        print(f"Could not ask Keycloak: {e}")
+        return 1
+    if not info["realm_exists"]:
+        print("The 'nexus' realm doesn't exist. Run: python -m app.cli sso-setup")
+        return 1
+    print(f"Realm: lock after {info['failures_before_lock']} wrong passwords "
+          f"(protection {'on' if info['brute_force_protected'] else 'off'}, "
+          f"{'permanent' if info['permanent_lockout'] else 'temporary'} lock)")
+    if not info["found"]:
+        print(f"No Keycloak user '{username}'. Similar: {', '.join(info.get('similar_usernames') or []) or 'none'}")
+        return 1
+    print(f"User:  {info['username']} <{info['email']}>  name: {info['first_name'] or '-'} {info['last_name'] or '-'}")
+    print(f"       enabled: {info['enabled']}   e-mail verified: {info['email_verified']}   "
+          f"password set: {info['password_set']}")
+    print(f"       NEXUS roles: {', '.join(info['nexus_roles']) or 'none (plain user)'}")
+    print(f"       pending actions: {', '.join(info['required_actions']) or 'none'}")
+    print(f"       locked: {info['locked']}   failed attempts: {info['failed_attempts']}")
+    problems = []
+    if not info["enabled"]:
+        problems.append("the account is disabled (Keycloak → Users → Enabled)")
+    if info["locked"]:
+        problems.append("the account is locked after wrong passwords (run again with --unlock)")
+    if info["required_actions"]:
+        problems.append("Keycloak wants the user to complete: " + ", ".join(info["required_actions"]))
+    if not info["password_set"]:
+        problems.append("no password is set (run sso-user again)")
+    if unlock and info["locked"]:
+        unlock_user(admin, info["id"])
+        print("       -> unlocked")
+        problems = [p for p in problems if "locked" not in p]
+    if test_pw:
+        ok, reason = test_password(info["username"], getpass.getpass("Password to test: "))
+        print(f"Password test: {'OK' if ok else 'FAILED'} ({reason})")
+        if not ok and "credentials" in reason.lower():
+            problems.append("the password typed doesn't match (set it again with sso-user)")
+    print("Looks fine." if not problems else "Problems:\n  - " + "\n  - ".join(problems))
+    return 0 if not problems else 1
+
+
 def prompt_new_password() -> str | None:
     """Ask twice without echoing; None if the two entries differ or the password is too short."""
     first = getpass.getpass("New password: ")
@@ -192,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--role", choices=["admin", "agent", "analyst", "user"], default="user")
     p.add_argument("--name", dest="full_name", help="Full name")
     p.add_argument("--keep-password", action="store_true", help="Update e-mail/role only")
+    p = sub.add_parser("sso-check", help="Show why a Keycloak user can't sign in")
+    p.add_argument("username")
+    p.add_argument("--test-password", action="store_true", help="Ask for a password and try it")
+    p.add_argument("--unlock", action="store_true", help="Clear a lock after too many wrong passwords")
     p = sub.add_parser("redact-pii", help="Remove personal data from existing tickets (dry run unless --apply)")
     p.add_argument("--apply", action="store_true", help="Save the changes")
     args = parser.parse_args(argv)
@@ -207,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         return sso_setup(args.app_url)
     if args.command == "sso-user":
         return sso_user(args.username, args.email, args.role, args.full_name, args.keep_password)
+    if args.command == "sso-check":
+        return sso_check(args.username, args.test_password, args.unlock)
     if args.command == "redact-pii":
         return asyncio.run(redact_existing_tickets(args.apply))
     return 2
