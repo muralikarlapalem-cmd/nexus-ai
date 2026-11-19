@@ -72,6 +72,10 @@ class AgentRunResponse(BaseModel):
     task_id: str | None = None
 
 
+# A queued run counts as alive for this long before the worker picks it up
+QUEUED_HEARTBEAT_TTL = 1200
+
+
 @router.post("/run/{ticket_id}", response_model=AgentRunResponse)
 async def trigger_agent_run(
     ticket_id: uuid.UUID,
@@ -98,14 +102,18 @@ async def trigger_agent_run(
     previous = (ticket.status, ticket.assigned_agent)
     ticket.status = TicketStatus.IN_PROGRESS
     ticket.assigned_agent = AssignedAgent.TRIAGE
+    ticket.agent_error = None
     await db.commit()
 
     # Dispatch via Celery for production async execution
+    from app.workers import agent_runs
     from app.workers.celery_app import process_ticket_task
+    agent_runs.beat(str(ticket_id), ttl=QUEUED_HEARTBEAT_TTL)   # queued counts as alive
     try:
         task = process_ticket_task.delay(str(ticket_id))
     except Exception as e:
         # Nothing was queued (broker unreachable): put the ticket back
+        agent_runs.clear_beat(str(ticket_id))
         ticket.status, ticket.assigned_agent = previous
         await db.commit()
         raise HTTPException(status_code=503, detail=f"Could not queue the agent run: {e}")
@@ -278,11 +286,14 @@ async def resume_after_hitl(
     ticket.assigned_agent = AssignedAgent(body.next_agent)
     await db.commit()
 
+    from app.workers import agent_runs
     from app.workers.celery_app import resume_ticket_task
+    agent_runs.beat(str(ticket_id), ttl=QUEUED_HEARTBEAT_TTL)   # queued counts as alive
     try:
         task = resume_ticket_task.delay(str(ticket_id), human_response)
     except Exception as e:
         # Nothing was queued (broker unreachable): the ticket is still waiting for review
+        agent_runs.clear_beat(str(ticket_id))
         ticket.assigned_agent = AssignedAgent.HUMAN
         await db.commit()
         raise HTTPException(status_code=503, detail=f"Could not queue the review: {e}")
@@ -378,3 +389,63 @@ async def get_langsmith_link(
     except Exception as e:
         return {"run_id": run_id, "url": None, "reason": f"Could not reach LangSmith: {e}"}
     return {"run_id": run_id, "url": f"{base}/r/{run_id}?poll=true"}
+
+
+# ── Retry a run that stopped ──────────────────────────────────
+@router.post("/retry/{ticket_id}", response_model=AgentRunResponse)
+async def retry_agent_run(
+    ticket_id: uuid.UUID,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(require_agent_or_admin),
+):
+    """
+    Start the agents again, from Triage, on a ticket whose run stopped (lost
+    connection, worker restart, an error) or that a human was given.
+    409 if a run is still going or the ticket is waiting for a human review.
+    """
+    from app.models.audit_log import AuditLog
+    from app.workers import agent_runs
+    from app.workers.celery_app import process_ticket_task
+
+    ticket = (await db.execute(select(Ticket).where(Ticket.id == ticket_id))).scalar_one_or_none()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.status != TicketStatus.IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="Only an in-progress ticket can be retried; use Run Agents")
+    if agent_runs.is_alive(str(ticket_id)):
+        raise HTTPException(status_code=409, detail="The agents are still working on this ticket, "
+                                                    "or a retry is already scheduled")
+    try:
+        async with get_supervisor_graph() as graph:
+            snap = await graph.aget_state({"configurable": {"thread_id": str(ticket_id)}})
+        if snap and snap.next and "human_review" in snap.next:
+            raise HTTPException(status_code=409, detail="This ticket is waiting for a human review; "
+                                                        "submit the review instead")
+    except HTTPException:
+        raise
+    except Exception:
+        pass    # can't read the checkpoint: a fresh run is still fine
+
+    previous = (ticket.assigned_agent, ticket.agent_error)
+    ticket.assigned_agent = AssignedAgent.TRIAGE
+    ticket.agent_error = None
+    db.add(AuditLog(user_id=current_user.id, action="agent.retry", resource_type="ticket",
+                    resource_id=str(ticket_id), details={"previous_error": previous[1]}))
+    await db.commit()
+
+    agent_runs.beat(str(ticket_id), ttl=QUEUED_HEARTBEAT_TTL)
+    try:
+        task = process_ticket_task.delay(str(ticket_id))
+    except Exception as e:
+        agent_runs.clear_beat(str(ticket_id))
+        ticket.assigned_agent, ticket.agent_error = previous
+        await db.commit()
+        raise HTTPException(status_code=503, detail=f"Could not queue the agent run: {e}")
+
+    return AgentRunResponse(
+        ticket_id=str(ticket_id),
+        ticket_number=ticket.ticket_number,
+        status="dispatched",
+        message="Agents restarted from Triage.",
+        task_id=task.id,
+    )

@@ -82,6 +82,11 @@ async def init_db() -> None:
     from app.models import ticket, user, audit_log, integration  # noqa: F401 — ensure models registered
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all doesn't add columns to existing tables. Add the ones newer
+        # than the table, so the app keeps working before `alembic upgrade head`
+        # (the migration does the same and is safe to run afterwards).
+        from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS agent_error TEXT"))
     logger.info("Database tables initialised")
 
 

@@ -47,6 +47,8 @@ def _get_llm(streaming: bool = False) -> ChatOpenAI:
         max_tokens=rag_settings.max_tokens,
         api_key=rag_settings.openai_api_key,
         streaming=streaming,
+        timeout=rag_settings.llm_timeout_seconds,
+        max_retries=rag_settings.llm_max_retries,
     )
 
 

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ticketApi, agentApi, integrationsApi } from '../api/tickets'
 import { useAuthStore } from '../store/authStore'
-import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2, Send, ExternalLink } from 'lucide-react'
+import { Bot, Zap, CheckCircle, AlertTriangle, Clock, Loader2, Send, ExternalLink, RotateCcw } from 'lucide-react'
 import { format } from 'date-fns'
 import AgentPipeline, { NODE_LABELS } from '../components/AgentPipeline'
 import SourceBadge from '../components/SourceBadge'
@@ -123,6 +123,21 @@ export default function TicketDetailPage() {
     },
     onError: (err) => {
       alert(err?.response?.data?.detail || 'Failed to start the agents')
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+    },
+  })
+
+  const [retryError, setRetryError] = useState(null)
+  const retryMutation = useMutation({
+    mutationFn: () => agentApi.retry(id),
+    onMutate: () => setRetryError(null),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+      qc.invalidateQueries({ queryKey: ['trace', id] })
+    },
+    onError: (err) => {
+      const detail = err?.response?.data?.detail
+      setRetryError(typeof detail === 'string' ? detail : 'Could not restart the agents')
       qc.invalidateQueries({ queryKey: ['ticket', id] })
     },
   })
@@ -263,10 +278,30 @@ export default function TicketDetailPage() {
               : <Loader2 size={14} className="text-indigo-400 animate-spin" />}
             <p className={`text-sm font-medium ${withHuman ? 'text-orange-300' : 'text-indigo-200'}`}>{liveLabel}</p>
           </div>
-          {withHuman && !awaitingReview && (
-            <p className="text-xs text-nexus-muted mb-3">
-              Nothing more will run automatically. An admin can mark the ticket resolved or closed with “Change status…” above.
+          {/* Why the last run stopped, or when the automatic retry is */}
+          {ticket.agent_error && (
+            <p role="status" className={`text-xs mb-3 ${withHuman ? 'text-orange-200' : 'text-indigo-200'}`}>
+              {ticket.agent_error}
             </p>
+          )}
+          {withHuman && !awaitingReview && (
+            <div className="mb-3">
+              <p className="text-xs text-nexus-muted">
+                Nothing more will run automatically. {canReview
+                  ? 'Run the agents again from Triage, or mark the ticket resolved or closed with “Change status…” above.'
+                  : 'A support agent or admin can run the agents again or close the ticket.'}
+              </p>
+              {canReview && (
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                  <button onClick={() => retryMutation.mutate()} disabled={retryMutation.isPending}
+                    className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 text-xs font-medium">
+                    {retryMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                    Retry agents
+                  </button>
+                  {retryError && <span role="alert" className="text-xs text-yellow-300">{retryError}</span>}
+                </div>
+              )}
+            </div>
           )}
           {awaitingReview && !canReview && (
             <p className="text-xs text-nexus-muted mb-3">A support agent or admin needs to review this ticket before the agents continue.</p>

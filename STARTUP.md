@@ -122,6 +122,7 @@ docker compose stop
 | `/health/ready` reports the database or Redis as down | Those containers are still starting | Wait 30 s and retry; else `docker compose restart postgres redis` |
 | First start after a reboot is slow | Ollama re-checks its embedding model on start | Wait a minute; `docker compose logs ollama` |
 | Agent runs never finish | Celery worker stopped or unhealthy | `docker compose logs celery-worker --tail 50`, then `docker compose restart celery-worker` |
+| Ticket stuck "in progress" after a power cut or lost Wi-Fi | The agent run was cut off | Nothing to do: a lost connection is retried after 1, 2 and 4 minutes, and a run that died is handed to a human within about 7 minutes, with the reason on the ticket. Then click **Retry agents** on the ticket |
 
 ---
 

@@ -72,6 +72,11 @@ celery_app.conf.update(
         },
         # Integrations: check every minute which connections are due for a sync
         # (each connection has its own interval, set on the Integrations page)
+        # Agent runs that died without finishing (power cut, lost connection)
+        "recover-stalled-agent-runs-every-2min": {
+            "task": "app.workers.celery_app.recover_stalled_runs_task",
+            "schedule": 120.0,
+        },
         "sync-integrations-every-minute": {
             "task": "app.workers.integration_tasks.sync_due_connections_task",
             "schedule": 60.0,
@@ -188,21 +193,59 @@ def check_sla_breaches():
 @celery_app.task(
     name="app.workers.celery_app.process_ticket_task",
     queue="agents",
-    max_retries=3,
-    default_retry_delay=30,
+    bind=True,
+    max_retries=3,   # = len(agent_runs.RETRY_DELAYS)
 )
-def process_ticket_task(ticket_id: str):
+def process_ticket_task(self, ticket_id: str):
     """
-    Dispatch a ticket through the LangGraph supervisor.
-    STUB — full implementation in Phase 3.
-    """
-    logger.info(f"process_ticket_task: ticket_id={ticket_id}")
-    from agents.supervisor import run_supervisor
-    _run_agents_with_metrics(run_supervisor(ticket_id))
+    Run a ticket through the LangGraph supervisor.
 
-    # Tickets imported from ServiceNow etc.: post the result back as a work note
-    from app.workers.integration_tasks import queue_write_back
-    queue_write_back(ticket_id)
+    Survives a dropped connection: if OpenAI can't be reached the run is retried
+    after 1, 2 and 4 minutes, and the ticket says so. Any other failure, or the
+    last retry failing, hands the ticket to a human with the reason. A heartbeat
+    marks the run as alive; see app/workers/agent_runs.py.
+    """
+    from agents.supervisor import run_supervisor
+    from app.workers import agent_runs
+
+    attempt = self.request.retries + 1
+    total = len(agent_runs.RETRY_DELAYS) + 1
+    logger.info(f"process_ticket_task: ticket_id={ticket_id} attempt {attempt}/{total}")
+
+    if not agent_runs.acquire_lock(ticket_id):
+        logger.warning(f"Ticket {ticket_id}: an agent run is already going; this one is skipped")
+        return
+    retry_scheduled = False
+    try:
+        if not run_async(agent_runs.run_still_wanted(ticket_id)):
+            logger.info(f"Ticket {ticket_id} no longer needs an agent run; skipped")
+            return
+        agent_runs.beat(ticket_id)
+        try:
+            _run_agents_with_metrics(
+                run_supervisor(ticket_id, callbacks=[agent_runs.heartbeat_callback(ticket_id)])
+            )
+        except Exception as e:
+            reason = agent_runs.describe(e)
+            if agent_runs.is_transient(e) and self.request.retries < len(agent_runs.RETRY_DELAYS):
+                delay = agent_runs.RETRY_DELAYS[self.request.retries]
+                # Keep the run "alive" until the retry starts, so the stall check leaves it alone
+                agent_runs.beat(ticket_id, ttl=delay + agent_runs.HEARTBEAT_TTL)
+                run_async(agent_runs.note_retry(ticket_id, reason, attempt + 1, total, delay))
+                logger.warning(f"Ticket {ticket_id}: {reason} Retrying in {delay}s")
+                retry_scheduled = True
+                raise self.retry(exc=e, countdown=delay)
+            logger.exception(f"Agent run for ticket {ticket_id} failed")
+            run_async(agent_runs.stop_run(ticket_id, reason))
+            return
+
+        # Tickets imported from ServiceNow etc.: post the result back as a work note
+        from app.workers.integration_tasks import queue_write_back
+        queue_write_back(ticket_id)
+    finally:
+        agent_runs.release_lock(ticket_id)
+        if not retry_scheduled:
+            agent_runs.clear_beat(ticket_id)
 
 
 @celery_app.task(
@@ -213,22 +256,48 @@ def resume_ticket_task(ticket_id: str, human_response: dict):
     """
     Resume a run paused for human review, with the reviewer's decision:
     {"approved": bool, "next_agent": str, "notes": str}.
+    If it fails part-way the ticket goes back to a human with the reason
+    (Retry agents then starts a fresh run).
     """
     from agents.supervisor import NoPausedRunError, hand_to_human, resume_supervisor
+    from app.workers import agent_runs
 
     logger.info(f"resume_ticket_task: ticket_id={ticket_id} approved={human_response.get('approved')}")
+    if not agent_runs.acquire_lock(ticket_id):
+        logger.warning(f"Ticket {ticket_id}: an agent run is already going; the review is not applied yet")
+        run_async(hand_to_human(ticket_id))
+        return
     try:
-        _run_agents_with_metrics(resume_supervisor(ticket_id, human_response))
+        agent_runs.beat(ticket_id)
+        _run_agents_with_metrics(resume_supervisor(
+            ticket_id, human_response, callbacks=[agent_runs.heartbeat_callback(ticket_id)],
+        ))
         from app.workers.integration_tasks import queue_write_back
         queue_write_back(ticket_id)
     except NoPausedRunError as e:
         logger.warning(str(e))
         run_async(hand_to_human(ticket_id))
-    except Exception:
+    except Exception as e:
         # The agents failed after the review: give the ticket back to a human
         # rather than leave it looking as if an agent still has it.
-        run_async(hand_to_human(ticket_id))
-        raise
+        logger.exception(f"Resumed agent run for ticket {ticket_id} failed")
+        run_async(agent_runs.stop_run(ticket_id, agent_runs.describe(e)))
+    finally:
+        agent_runs.release_lock(ticket_id)
+        agent_runs.clear_beat(ticket_id)
+
+
+@celery_app.task(name="app.workers.celery_app.recover_stalled_runs_task", queue="default")
+def recover_stalled_runs_task():
+    """
+    Every 2 minutes: tickets whose agent run died without a word (worker killed
+    by a power cut, laptop asleep) are handed to a human with the reason.
+    """
+    from app.workers.agent_runs import recover_stalled_runs
+    stopped = run_async(recover_stalled_runs())
+    if stopped:
+        logger.warning(f"Stalled agent runs handed to a human: {', '.join(stopped)}")
+    return stopped
 
 
 @celery_app.task(

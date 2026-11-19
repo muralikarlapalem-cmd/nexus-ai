@@ -105,6 +105,10 @@ class Ticket(Base):
     # LangGraph trace reference (populated in Phase 5)
     langsmith_run_id: Mapped[str | None] = mapped_column(String(255))
 
+    # Why the last agent run stopped or is being retried (lost connection,
+    # worker restart...). Cleared when a new run starts. Shown on the ticket page.
+    agent_error: Mapped[str | None] = mapped_column(Text)
+
     # Relationships
     created_by_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False

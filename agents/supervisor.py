@@ -190,11 +190,12 @@ async def _save_run_id(ticket_id: str, run_id: str | None) -> None:
 
 
 # ── Public entry point ────────────────────────────────────────
-async def run_supervisor(ticket_id: str) -> dict:
+async def run_supervisor(ticket_id: str, callbacks: list | None = None) -> dict:
     """
     Run the full supervisor graph for a given ticket ID.
     Fetches ticket from DB, builds initial state, runs graph.
 
+    callbacks: extra LangChain callbacks for the run (the worker passes its heartbeat).
     Returns the final TicketState dict.
     """
     from app.database import get_db_context
@@ -247,6 +248,8 @@ async def run_supervisor(ticket_id: str) -> dict:
     }
 
     config, run_id = _run_config(str(ticket.id), ticket.ticket_number, "run")
+    if callbacks:
+        config["callbacks"] = list(callbacks)
     initial_state["langsmith_run_id"] = run_id
 
     # Update ticket status to IN_PROGRESS (and link it to this run's trace)
@@ -256,6 +259,7 @@ async def run_supervisor(ticket_id: str) -> dict:
         if t:
             t.status = TicketStatus.IN_PROGRESS
             t.assigned_agent = AssignedAgent.TRIAGE
+            t.agent_error = None          # a fresh run: forget why the last one stopped
             if run_id:
                 t.langsmith_run_id = run_id
 
@@ -271,7 +275,7 @@ class NoPausedRunError(Exception):
     """Raised when /agents/resume is called for a ticket with no paused graph run."""
 
 
-async def resume_supervisor(ticket_id: str, human_response: dict) -> dict:
+async def resume_supervisor(ticket_id: str, human_response: dict, callbacks: list | None = None) -> dict:
     """
     Resume a graph paused at the human_review node and save the outcome to the ticket.
 
@@ -286,6 +290,8 @@ async def resume_supervisor(ticket_id: str, human_response: dict) -> dict:
             raise NoPausedRunError(f"No paused agent run for ticket {ticket_id}")
         ticket_number = (getattr(snapshot, "values", None) or {}).get("ticket_number", str(ticket_id))
         config, run_id = _run_config(str(ticket_id), ticket_number, "resume")
+        if callbacks:
+            config["callbacks"] = list(callbacks)
         await _save_run_id(ticket_id, run_id)
         final_state = await graph.ainvoke(Command(resume=human_response), config=config)
         if run_id:

@@ -68,6 +68,7 @@ class TicketResponse(BaseModel):
     triaged_at: datetime | None
     resolved_at: datetime | None
     langsmith_run_id: str | None
+    agent_error: str | None = None
 
     # Where the ticket came from: "nexus" for tickets created here, otherwise the
     # connector type (e.g. "servicenow") with the source system's number and link.

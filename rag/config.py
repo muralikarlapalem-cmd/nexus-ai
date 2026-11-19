@@ -55,6 +55,10 @@ class RAGSettings(BaseSettings):
     # ── Generation ────────────────────────────────────────────
     llm_model: str = "gpt-4o"
     llm_temperature: float = 0.0
+    # Per-request limit for agent LLM calls. Without it a call can hang ~10 min
+    # when the internet drops; with it the run fails fast and the worker retries.
+    llm_timeout_seconds: float = 60.0
+    llm_max_retries: int = 2
     max_tokens: int = 1024
 
     # ── Web search fallback (Diagnosis Agent) ─────────────────

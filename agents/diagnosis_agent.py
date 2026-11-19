@@ -65,6 +65,8 @@ async def diagnosis_agent(state: TicketState) -> TicketState:
         model=rag_settings.llm_model,
         temperature=0.0,
         api_key=rag_settings.openai_api_key,
+        timeout=rag_settings.llm_timeout_seconds,
+        max_retries=rag_settings.llm_max_retries,
     )
 
     triage = state.get("triage_result", {})
