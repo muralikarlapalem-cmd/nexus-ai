@@ -927,7 +927,7 @@
         "type": "loki",
         "uid": "nexus-loki"
       },
-      "description": "Log lines containing error, exception, traceback, critical or fatal, per 5 minutes",
+      "description": "Lines with an error marker (ERROR / FATAL / CRITICAL, tracebacks, sign-in failures) per 5 minutes; database query logging is left out",
       "gridPos": {
         "x": 0,
         "y": 41,
@@ -941,7 +941,7 @@
             "type": "loki",
             "uid": "nexus-loki"
           },
-          "expr": "sum by (container) (count_over_time({container=~\"nexus-.*\"} |~ \"(?i)(error|exception|traceback|critical|fatal)\" [5m]))",
+          "expr": "sum by (container) (count_over_time({container=~\"nexus-.*\"} !~ \"sqlalchemy\\\\.engine|\\\\[(generated|cached) in |\\\\[raw sql\\\\]|\\\\] (SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\\\b\" |~ \"\\\\| *(ERROR|CRITICAL) *\\\\||(ERROR|CRITICAL|FATAL|PANIC)[/:]|\\\\s(ERROR|FATAL)\\\\s+\\\\[|Traceback \\\\(most recent call last\\\\)|\\\\w(Error|Exception): |type=\\\\w*_ERROR\" [5m]))",
           "legendFormat": "{{container}}"
         }
       ],
@@ -994,7 +994,7 @@
             "type": "loki",
             "uid": "nexus-loki"
           },
-          "expr": "{container=~\"nexus-.*\"} |~ \"(?i)(error|exception|traceback|critical|fatal)\""
+          "expr": "{container=~\"nexus-.*\"} !~ \"sqlalchemy\\\\.engine|\\\\[(generated|cached) in |\\\\[raw sql\\\\]|\\\\] (SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\\\b\" |~ \"\\\\| *(ERROR|CRITICAL) *\\\\||(ERROR|CRITICAL|FATAL|PANIC)[/:]|\\\\s(ERROR|FATAL)\\\\s+\\\\[|Traceback \\\\(most recent call last\\\\)|\\\\w(Error|Exception): |type=\\\\w*_ERROR\""
         }
       ],
       "options": {

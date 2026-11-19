@@ -260,12 +260,32 @@ def fake_loki(monkeypatch):
 def test_logql_picks_containers_and_escapes_keywords():
     from agents.tools.search_tools import _logql
 
-    assert _logql("database", "") == ('{container=~"nexus-(postgres|qdrant|redis)"} |~ '
-                                      '"(?i)(error|exception|traceback|critical|fatal|failed|refused|timed? ?out|denied)"')
+    q = _logql("database", "")
+    assert q.startswith('{container=~"nexus-(postgres|qdrant|redis)"} !~ "sqlalchemy')   # query logging dropped first
+    assert '(ERROR|CRITICAL|FATAL|PANIC)[/:]' in q and "type=\\\\w*_ERROR" in q
     q = _logql("application", 'ORA-00060, "quoted"')
     assert q.startswith('{container=~"nexus-(api|celery|beat)"}')
     assert "ORA\\\\-00060" in q and '\\"quoted\\"' in q
     assert _logql("nonsense", "x").startswith('{container=~"nexus-.*"}')
+
+
+@pytest.mark.parametrize("line, is_error", [
+    ("[2026-11-19 17:02:13,607: INFO/ForkPoolWorker-2] SELECT t.last_error FROM t", False),
+    ("2026-11-19 17:02:16.100 | ERROR    | app.workers - run stopped", True),
+    ("[2026-11-19 17:02:17,000: ERROR/ForkPoolWorker-1] Task raised", True),
+    ("2026-11-19 17:02:18.000 UTC [123] FATAL:  password authentication failed", True),
+    ("openai.APIConnectionError: Connection error.", True),
+    ("WARN  [org.keycloak.events] type=LOGIN_ERROR, error=invalid_user_credentials", True),
+    ("2026-11-19 17:02:20.100 | WARNING  | app - Keycloak decode failed", False),
+    ("2026-11-19 17:02:21.100 | INFO     | app - GET /api/v1/errors-report 200", False),
+])
+def test_error_pattern(line, is_error):
+    """Same regexes Loki runs (RE2; these patterns behave the same in Python)."""
+    import re
+
+    from agents.tools.search_tools import ERROR_PATTERN, NOISE_PATTERN
+
+    assert (not re.search(NOISE_PATTERN, line) and bool(re.search(ERROR_PATTERN, line))) == is_error
 
 
 @pytest.mark.asyncio

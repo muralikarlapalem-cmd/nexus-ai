@@ -152,7 +152,19 @@ LOG_TYPE_CONTAINERS = {
     "network":     "nexus-.*",
     "system":      "nexus-.*",
 }
-ERROR_PATTERN = r"(?i)(error|exception|traceback|critical|fatal|failed|refused|timed? ?out|denied)"
+# What counts as an error line: the error MARKERS each service writes, not
+# the word "error" anywhere (SQL logs mention columns like last_error).
+#   loguru "| ERROR |"   celery "ERROR/Worker"   uvicorn, postgres "ERROR:" "FATAL:"
+#   Python tracebacks and "SomeError: ..."   Keycloak sign-in failures "type=LOGIN_ERROR"
+ERROR_PATTERN = (
+    r"\| *(ERROR|CRITICAL) *\||(ERROR|CRITICAL|FATAL|PANIC)[/:]|\s(ERROR|FATAL)\s+\["
+    r"|Traceback \(most recent call last\)|\w(Error|Exception): |type=\w*_ERROR"
+)
+# Database query logging (SQLAlchemy echo) is never evidence; drop it first.
+NOISE_PATTERN = (
+    r"sqlalchemy\.engine|\[(generated|cached) in |\[raw sql\]"
+    r"|\] (SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\b"
+)
 MAX_LINE_CHARS = 300
 
 
@@ -169,9 +181,12 @@ def _logql(log_type: str, keywords: str) -> str:
     containers = LOG_TYPE_CONTAINERS.get((log_type or "").strip().lower(), "nexus-.*")
     words = [k.strip() for k in (keywords or "").split(",") if k.strip()]
     pattern = "(?i)(" + "|".join(re.escape(w) for w in words) + ")" if words else ERROR_PATTERN
-    # LogQL strings use Go escaping: double every backslash, escape quotes
-    pattern = pattern.replace("\\", "\\\\").replace('"', '\\"')
-    return f'{{container=~"{containers}"}} |~ "{pattern}"'
+    return f'{{container=~"{containers}"}} !~ "{_q(NOISE_PATTERN)}" |~ "{_q(pattern)}"'
+
+
+def _q(pattern: str) -> str:
+    """A regex as a LogQL string (Go escaping: double every backslash, escape quotes)."""
+    return pattern.replace("\\", "\\\\").replace('"', '\\"')
 
 
 async def query_logs(log_type: str, keywords: str, lines: int = 50,
@@ -235,7 +250,8 @@ async def scan_system_logs(log_type: str, keywords: str, lines: int = 50) -> str
     Args:
         log_type: 'application' (API + workers), 'database' (Postgres, Qdrant, Redis),
                   'auth' (Keycloak + API), 'network' or 'system' (all containers)
-        keywords: Comma-separated words to look for; empty = errors, exceptions, failures
+        keywords: Comma-separated words to look for; empty = error lines (ERROR/FATAL markers,
+                  tracebacks, sign-in failures)
         lines: Most recent matching lines to return (max 200)
     """
     res = await query_logs(log_type, keywords, lines)
