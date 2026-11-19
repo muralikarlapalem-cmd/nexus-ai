@@ -35,7 +35,16 @@ username/password form. Local NEXUS accounts keep working.
 
 ---
 
-## 2. What happens when someone signs in
+## 2. Where to sign in
+
+Start at the NEXUS app, http://localhost:5173, and click **Sign in with Keycloak**. Never sign
+in to NEXUS at http://localhost:8080/admin: that is the Keycloak **admin console** (the `master`
+realm), where only `admin` exists. Its sign-in page looks the same, so check the address bar:
+NEXUS users sign in on a page whose address contains **`/realms/nexus/`**.
+
+---
+
+## 3. What happens when someone signs in
 
 1. **Sign in with Keycloak** sends the browser to Keycloak's sign-in page, with a one-time PKCE
    challenge (no client secret is ever in the browser).
@@ -54,7 +63,7 @@ username/password form. Local NEXUS accounts keep working.
 
 ---
 
-## 3. Settings (`.env`)
+## 4. Settings (`.env`)
 
 | Variable | Default | What |
 |---|---|---|
@@ -70,19 +79,28 @@ username/password form. Local NEXUS accounts keep working.
 
 ---
 
-## 4. If something doesn't work
+## 5. If something doesn't work
+
+Start with `docker compose exec api python -m app.cli sso-check <username> --test-password`: it
+shows whether the user exists, is enabled or locked, has a password and a role, and whether the
+password you type is accepted.
 
 | Symptom | Fix |
 |---|---|
+| A NEXUS user gets "Invalid username or password" with the right password | They're on the admin console's sign-in page. Start from NEXUS → **Sign in with Keycloak**; the address must contain `/realms/nexus/` |
+| "Invalid username or password" after many wrong tries | 30 wrong passwords lock the account for a while (even the right one is refused): `sso-check <username> --unlock` |
+| `sso-setup` / `sso-user` say "Could not sign in to Keycloak as 'admin' (401)" | Keycloak sets the admin password only on its first start; a later change to `KC_ADMIN_PASSWORD` in `.env` doesn't reach it. Sign in to the admin console with the password that works, reset it (realm **master** → Users → admin → Credentials, Temporary off) to the one in `.env`, then `docker compose up -d --force-recreate api` |
 | No **Sign in with Keycloak** button | The text under the sign-in box says why. Usually the realm doesn't exist yet: run `sso-setup`. |
 | Keycloak says **Invalid parameter: redirect_uri** | The app runs at another address: `sso-setup --app-url http://<that address>` |
 | Signed in at Keycloak, then "Invalid Keycloak token: unexpected issuer" | You opened Keycloak by another address than `KEYCLOAK_PUBLIC_URL`. Use http://localhost:8080 or change the setting. |
 | "A NEXUS account already uses this e-mail" | Mark the e-mail as verified for that user in Keycloak, or use another e-mail |
 | Someone has the wrong role | Change their `nexus-*` role in Keycloak (or `sso-user ... --role`); it applies at their next request |
 
+A guide for all the quick wins, with sign-in and troubleshooting: [NEXUS AI Quick Wins guide](https://claude.ai/artifact/8EyypkcQ2XKmhW4UvUg18a).
+
 ---
 
-## 5. Before using this in production
+## 6. Before using this in production
 
 Keycloak runs with `start-dev` here: HTTP, development settings. For production run it with
 `start`, HTTPS and its own database, set `KEYCLOAK_PUBLIC_URL` to its HTTPS address, and run
