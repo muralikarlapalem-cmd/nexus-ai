@@ -21,9 +21,12 @@ These changes add Python packages and three containers, so the images need one r
    ```
    (`docker compose` refuses to start until this is set.)
 2. Rebuild and start (Command Prompt, in the project folder). The first rebuild downloads
-   PyTorch and all packages again, so allow 10–20 minutes. Later rebuilds reuse the PyTorch layer.
+   PyTorch and all packages again, so allow 10–20 minutes (longer on a slow connection). Build `api`
+   first: the other two use the same Dockerfile and then come straight from its cache instead of
+   downloading everything in parallel. Later rebuilds reuse the PyTorch layer.
    ```
-   docker compose build api celery-worker celery-beat
+   docker compose build api
+   docker compose build celery-worker celery-beat
    docker compose up -d
    ```
 3. Check: `docker compose ps` also lists `nexus-prometheus`, `nexus-grafana` and `nexus-jaeger`.

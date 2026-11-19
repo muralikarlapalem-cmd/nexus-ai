@@ -17,8 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # and a rebuild took over an hour on a slow connection.
 # It's its own layer, before requirements.txt is copied, so a change to
 # requirements.txt doesn't download torch again.
+# Slow or flaky connections: wait longer and retry more before giving up,
+# and let torch's helper packages (filelock, typing-extensions...) come from
+# PyPI if the PyTorch server doesn't answer. torch itself still comes from the
+# CPU index: its 2.14.0+cpu build ranks above PyPI's plain 2.14.0.
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.0
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple torch==2.14.0
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
