@@ -89,8 +89,10 @@ docker compose up -d
 | Grafana | `http://localhost:3000` (NEXUS AI dashboard) |
 | Prometheus | `http://localhost:9090` |
 | Jaeger (OpenTelemetry traces) | `http://localhost:16686` |
+| Loki + Alloy (logs) | in Grafana → Explore → Loki; Alloy status at `http://localhost:12345` |
 
-Monitoring, tracing and PII redaction: [OBSERVABILITY.md](OBSERVABILITY.md).
+Monitoring, tracing, logs and PII redaction: [OBSERVABILITY.md](OBSERVABILITY.md).
+Single sign-on with Keycloak: [SSO.md](SSO.md).
 
 ### 3. Apply DB migrations
 ```bash

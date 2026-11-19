@@ -73,68 +73,87 @@ def decode_local_token(token: str) -> dict:
 
 
 # ── Keycloak JWT (RS256 via JWKS) ─────────────────────────────
-# We cache the JWKS in memory; they are refreshed when a kid mismatch occurs.
+# The realm's public keys are cached. They're fetched again only when a token
+# names a key we don't have (key rotation), at most every 30 seconds, so bad
+# tokens can't make us hammer Keycloak.
 
 _jwks_cache: dict | None = None
+_jwks_fetched_at: float = 0.0
+JWKS_REFRESH_MIN_SECONDS = 30
 
 
 async def _fetch_jwks() -> dict:
-    global _jwks_cache
+    global _jwks_cache, _jwks_fetched_at
+    import time
+
     async with httpx.AsyncClient() as client:
-        resp = await client.get(str(settings.keycloak_jwks_url), timeout=10)
+        resp = await client.get(str(settings.keycloak_jwks_url), timeout=5)
         resp.raise_for_status()
         _jwks_cache = resp.json()
+        _jwks_fetched_at = time.monotonic()
         return _jwks_cache
+
+
+def _has_key(kid: str | None) -> bool:
+    return bool(_jwks_cache) and any(k.get("kid") == kid for k in _jwks_cache.get("keys", []))
 
 
 async def decode_keycloak_token(token: str) -> dict:
     """
-    Verify a Keycloak-issued JWT using the realm's public JWKS.
+    Verify a Keycloak-issued JWT: signature (realm keys), expiry, issuer (the
+    realm, by its browser or Docker address) and audience (nexus-backend).
     Raises ValueError on any validation failure.
     """
-    global _jwks_cache
+    import time
+
+    from app.core.sso import accepted_issuers
 
     try:
-        # Attempt decode with cached keys first
-        if _jwks_cache is None:
-            _jwks_cache = await _fetch_jwks()
-
-        try:
-            payload = jwt.decode(
-                token,
-                _jwks_cache,
-                algorithms=["RS256"],
-                audience=settings.keycloak_client_id,
-            )
-            return payload
-        except JWTError:
-            # Refresh JWKS (key rotation) and retry once
-            logger.info("JWKS cache miss — refreshing Keycloak public keys")
-            _jwks_cache = await _fetch_jwks()
-            payload = jwt.decode(
-                token,
-                _jwks_cache,
-                algorithms=["RS256"],
-                audience=settings.keycloak_client_id,
-            )
-            return payload
-
+        kid = jwt.get_unverified_header(token).get("kid")
+        if _jwks_cache is None or (
+            not _has_key(kid) and time.monotonic() - _jwks_fetched_at > JWKS_REFRESH_MIN_SECONDS
+        ):
+            logger.info("Fetching Keycloak public keys")
+            await _fetch_jwks()
+        payload = jwt.decode(
+            token,
+            _jwks_cache,
+            algorithms=["RS256"],
+            audience=settings.keycloak_client_id,
+            options={"verify_iss": False},     # checked below: two addresses are valid
+        )
     except httpx.HTTPError as e:
         raise ValueError(f"Could not reach Keycloak JWKS endpoint: {e}") from e
     except JWTError as e:
         raise ValueError(f"Invalid Keycloak token: {e}") from e
 
+    if payload.get("iss") not in accepted_issuers():
+        raise ValueError(f"Invalid Keycloak token: unexpected issuer {payload.get('iss')}")
+    return payload
+
+
+def token_algorithm(token: str) -> str | None:
+    try:
+        return jwt.get_unverified_header(token).get("alg")
+    except JWTError:
+        return None
+
 
 async def decode_token(token: str) -> dict:
     """
-    Universal decoder — tries Keycloak first, falls back to local HS256.
-    This allows the API to work in dev without Keycloak running.
+    Verify a bearer token. NEXUS's own tokens (HS256) are checked locally;
+    Keycloak's (RS256) against the realm. The token's own header says which,
+    so a local sign-in never waits for Keycloak.
+    Keycloak tokens come back with "_sso": True.
     """
+    alg = token_algorithm(token)
+    if alg == "RS256":
+        payload = await decode_keycloak_token(token)
+        payload["_sso"] = True
+        return payload
     try:
-        return await decode_keycloak_token(token)
-    except Exception as kc_err:
-        logger.debug(f"Keycloak decode failed ({kc_err}), trying local JWT")
-        try:
-            return decode_local_token(token)
-        except ValueError as local_err:
-            raise ValueError(f"Token invalid: {local_err}") from local_err
+        payload = decode_local_token(token)
+    except ValueError as local_err:
+        raise ValueError(f"Token invalid: {local_err}") from local_err
+    payload.pop("_sso", None)
+    return payload

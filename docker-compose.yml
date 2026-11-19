@@ -5,7 +5,7 @@
 #  Phase 2: + Qdrant vector DB + Ollama (local embeddings)
 #  Services: postgres | redis | keycloak | qdrant | ollama
 #            api | celery-worker | celery-beat
-#  Observability: prometheus | grafana | jaeger
+#  Observability: prometheus | grafana | jaeger | loki | alloy
 # ─────────────────────────────────────────────────────────────
 
 networks:
@@ -21,6 +21,7 @@ volumes:
   servicenow_mock_data:
   prometheus_data:
   grafana_data:
+  loki_data:
 
 services:
 
@@ -277,5 +278,37 @@ services:
       COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
     ports:
       - "16686:16686"
+    networks:
+      - nexus-net
+
+  # ── Loki (logs) ───────────────────────────────────────────────
+  # Stores the NEXUS containers' logs for 7 days. The Security agent's
+  # scan_system_logs tool queries it; Grafana → Explore → Loki shows them.
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: nexus-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    networks:
+      - nexus-net
+
+  # ── Alloy (log collector) ─────────────────────────────────────
+  # Reads every nexus-* container's output through the Docker socket
+  # (read-only) and sends it to Loki. Debug UI: http://localhost:12345
+  alloy:
+    image: grafana/alloy:v1.5.1
+    container_name: nexus-alloy
+    restart: unless-stopped
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "12345:12345"
+    depends_on:
+      - loki
     networks:
       - nexus-net

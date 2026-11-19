@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     keycloak_client_id: str = "nexus-backend"
     keycloak_client_secret: str
     keycloak_jwks_url: AnyHttpUrl  # for JWT public-key verification
+    # Address browsers use to reach Keycloak. Tokens carry it as their issuer,
+    # so it differs from keycloak_url (the address inside Docker).
+    keycloak_public_url: str = "http://localhost:8080"
+    keycloak_frontend_client_id: str = "nexus-frontend"   # public client used by the web app
+    sso_enabled: bool = True
+    # Keycloak admin account (same variables docker-compose gives Keycloak);
+    # used only by `python -m app.cli sso-setup` and `sso-user`
+    kc_admin: str = ""
+    kc_admin_password: str = ""
 
     # ── JWT (local fallback) ──────────────────────────────────
     jwt_secret_key: str

@@ -7,6 +7,8 @@ Usage (inside the api container):
     python -m app.cli make-admin <username>
     python -m app.cli set-password <username>    # prompts; the password is never echoed
     python -m app.cli redact-pii [--apply]       # remove personal data from existing tickets
+    python -m app.cli sso-setup                  # create/repair the Keycloak realm for SSO
+    python -m app.cli sso-user <username> --email <e-mail> --role admin|agent|analyst|user
 """
 
 import argparse
@@ -128,6 +130,41 @@ async def redact_existing_tickets(apply: bool) -> int:
         await engine.dispose()
 
 
+def sso_setup(app_url: str | None) -> int:
+    from app.config import settings
+    from app.core.sso import KeycloakAdmin, ensure_realm, public_url
+
+    try:
+        admin = KeycloakAdmin()
+        for line in ensure_realm(admin, app_url):
+            print(f"  {line}")
+    except Exception as e:
+        print(f"Keycloak setup failed: {e}")
+        return 1
+    print(f"Realm '{settings.keycloak_realm}' is ready at {public_url()}/realms/{settings.keycloak_realm}")
+    print("Next: add a user with  python -m app.cli sso-user <username> --email <e-mail> --role admin")
+    return 0
+
+
+def sso_user(username: str, email: str, role: str, full_name: str | None, keep_password: bool) -> int:
+    from app.core.sso import KeycloakAdmin, upsert_user
+    from app.models.user import UserRole
+
+    password = None
+    if not keep_password:
+        password = prompt_new_password()
+        if password is None:
+            return 1
+    try:
+        admin = KeycloakAdmin()
+        outcome = upsert_user(admin, username, email, UserRole(role), password, full_name)
+    except Exception as e:
+        print(f"Could not save the Keycloak user: {e}")
+        return 1
+    print(f"Keycloak user '{username}' {outcome} with role {role}. Sign in with \"Sign in with Keycloak\".")
+    return 0
+
+
 def prompt_new_password() -> str | None:
     """Ask twice without echoing; None if the two entries differ or the password is too short."""
     first = getpass.getpass("New password: ")
@@ -147,6 +184,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("username")
     p = sub.add_parser("set-password", help="Set a local user's password (prompts for it)")
     p.add_argument("username")
+    p = sub.add_parser("sso-setup", help="Create or repair the Keycloak realm, roles and web-app client")
+    p.add_argument("--app-url", help="Address of the NEXUS web app (default: PUBLIC_APP_URL)")
+    p = sub.add_parser("sso-user", help="Create or update a Keycloak user (prompts for the password)")
+    p.add_argument("username")
+    p.add_argument("--email", required=True)
+    p.add_argument("--role", choices=["admin", "agent", "analyst", "user"], default="user")
+    p.add_argument("--name", dest="full_name", help="Full name")
+    p.add_argument("--keep-password", action="store_true", help="Update e-mail/role only")
     p = sub.add_parser("redact-pii", help="Remove personal data from existing tickets (dry run unless --apply)")
     p.add_argument("--apply", action="store_true", help="Save the changes")
     args = parser.parse_args(argv)
@@ -158,6 +203,10 @@ def main(argv: list[str] | None = None) -> int:
         if password is None:
             return 1
         return asyncio.run(set_password(args.username, password))
+    if args.command == "sso-setup":
+        return sso_setup(args.app_url)
+    if args.command == "sso-user":
+        return sso_user(args.username, args.email, args.role, args.full_name, args.keep_password)
     if args.command == "redact-pii":
         return asyncio.run(redact_existing_tickets(args.apply))
     return 2

@@ -47,7 +47,7 @@ docker compose up -d
 ```
 
 This starts any containers that aren't running yet: postgres, redis, qdrant, ollama, keycloak,
-servicenow-mock, api, celery-worker, celery-beat, prometheus, grafana and jaeger. (The mock ServiceNow is at http://localhost:8090;
+servicenow-mock, api, celery-worker, celery-beat, prometheus, grafana, jaeger, loki and alloy. (The mock ServiceNow is at http://localhost:8090;
 see [INTEGRATIONS.md](INTEGRATIONS.md).) It's safe to run even if they're already running.
 
 Check that everything is up (give it about a minute after Docker starts):
@@ -143,9 +143,10 @@ docker compose stop
 | **App (frontend)** | http://localhost:5173 |
 | API docs (Swagger) | http://localhost:8000/docs |
 | API health | http://localhost:8000/api/v1/health/ready |
-| Keycloak admin | http://localhost:8080 |
+| Keycloak (sign-in; admin console at /admin, see [SSO.md](SSO.md)) | http://localhost:8080 |
 | Qdrant dashboard | http://localhost:6333/dashboard |
 | Grafana (NEXUS AI dashboard) | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 | Jaeger (request traces) | http://localhost:16686 |
+| Alloy (log collector status) | http://localhost:12345 |
 | PostgreSQL (for DB tools) | `localhost:15432` |

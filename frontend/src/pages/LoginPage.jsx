@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Brain, Loader2 } from 'lucide-react'
+import { Brain, Loader2, KeyRound } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { authApi } from '../api/tickets'
+import { getSsoConfig, startSsoLogin } from '../auth/sso'
 
 export default function LoginPage() {
   const [form, setForm]   = useState({ username: '', password: '' })
@@ -10,6 +11,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const { login } = useAuthStore()
   const navigate  = useNavigate()
+  const [sso, setSso] = useState(null)          // /auth/sso-config: is Keycloak sign-in ready?
+  const [ssoBusy, setSsoBusy] = useState(false)
+
+  useEffect(() => { getSsoConfig().then(setSso) }, [])
+
+  const handleSso = async () => {
+    setError(''); setSsoBusy(true)
+    try { await startSsoLogin() }                 // leaves the page for Keycloak
+    catch (e) { setError(e.message); setSsoBusy(false) }
+  }
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -46,7 +57,24 @@ export default function LoginPage() {
         {/* Card */}
         <div className="bg-nexus-surface border border-nexus-border rounded-2xl p-6 shadow-xl">
           <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
-          <p className="text-nexus-muted text-sm mb-6">Use your NEXUS account credentials</p>
+          <p className="text-nexus-muted text-sm mb-6">
+            {sso?.enabled ? 'Use your organisation account, or a local NEXUS account' : 'Use your NEXUS account credentials'}
+          </p>
+
+          {sso?.enabled && (
+            <>
+              <button type="button" onClick={handleSso} disabled={ssoBusy}
+                className="w-full bg-white hover:bg-slate-100 disabled:opacity-60 text-slate-900 font-medium rounded-lg py-2.5 text-sm transition-colors flex items-center justify-center gap-2">
+                {ssoBusy ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                Sign in with Keycloak
+              </button>
+              <div className="flex items-center gap-3 my-5" aria-hidden="true">
+                <div className="h-px flex-1 bg-nexus-border" />
+                <span className="text-xs text-nexus-muted">or with a local account</span>
+                <div className="h-px flex-1 bg-nexus-border" />
+              </div>
+            </>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -80,7 +108,9 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-        <p className="text-center text-xs text-nexus-muted mt-4">Development mode — local auth active</p>
+        <p className="text-center text-xs text-nexus-muted mt-4">
+          {sso?.enabled ? 'Single sign-on by Keycloak' : (sso?.reason || 'Local sign-in')}
+        </p>
       </div>
     </div>
   )

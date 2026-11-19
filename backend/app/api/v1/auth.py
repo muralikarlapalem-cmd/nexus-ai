@@ -5,7 +5,7 @@ Authentication endpoints:
   POST /auth/refresh      — refresh access token
   GET  /auth/me           — return current user profile
   POST /auth/register     — local user registration (dev only)
-  GET  /auth/keycloak-url — return the Keycloak login redirect URL
+  GET  /auth/sso-config   — whether Keycloak sign-in is ready, and where it is
 """
 
 from datetime import datetime, timezone
@@ -148,18 +148,12 @@ async def register_local_user(
     return user
 
 
-@router.get("/keycloak-url")
-async def keycloak_login_url(redirect_uri: str):
+@router.get("/sso-config")
+async def sso_config():
     """
-    Return the Keycloak authorization URL for the frontend to redirect to.
-    The frontend initiates the OIDC Authorization Code flow here.
+    What the login page needs for "Sign in with Keycloak": whether SSO is ready,
+    Keycloak's address (as the browser sees it), the realm and the web app's
+    client ID. Public: it holds nothing secret.
     """
-    url = (
-        f"{settings.keycloak_url}/realms/{settings.keycloak_realm}"
-        f"/protocol/openid-connect/auth"
-        f"?client_id={settings.keycloak_client_id}"
-        f"&redirect_uri={redirect_uri}"
-        f"&response_type=code"
-        f"&scope=openid+profile+email"
-    )
-    return {"authorization_url": url}
+    from app.core.sso import sso_status
+    return await sso_status()

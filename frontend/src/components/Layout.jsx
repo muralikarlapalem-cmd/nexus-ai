@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { ssoLogout } from '../auth/sso'
 import {
   LayoutDashboard, Ticket, MessageSquare, Bot,
   LogOut, Brain, ChevronRight, BarChart3, Plug
@@ -17,10 +18,15 @@ const NAV = [
 ]
 
 export default function Layout() {
-  const { user, logout } = useAuthStore()
+  const { user, logout, sso } = useAuthStore()
   const navigate = useNavigate()
 
-  const handleLogout = () => { logout(); navigate('/login') }
+  // Keycloak users are signed out of Keycloak too, so the next sign-in asks again
+  const handleLogout = async () => {
+    logout()
+    if (sso && await ssoLogout(sso)) return
+    navigate('/login')
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-nexus-bg">

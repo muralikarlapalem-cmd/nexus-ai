@@ -61,6 +61,11 @@ class RAGSettings(BaseSettings):
     llm_max_retries: int = 2
     max_tokens: int = 1024
 
+    # ── Log search (Security Agent's scan_system_logs) ───────
+    # Loki holds the logs of the NEXUS containers (collected by Alloy).
+    loki_url: str = "http://loki:3100"
+    log_scan_window_minutes: int = 60
+
     # ── Web search fallback (Diagnosis Agent) ─────────────────
     # The web is searched only when the knowledge base has no good match:
     # no results, a search error, or a best reranker score below kb_min_relevance.

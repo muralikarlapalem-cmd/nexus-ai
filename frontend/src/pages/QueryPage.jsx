@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, BookOpen, ExternalLink } from 'lucide-react'
-import { useAuthStore } from '../store/authStore'
+import { getAccessToken } from '../api/client'
 
 // Where the answer came from (sent by the API as `basis`)
 const BASIS_LABEL = {
@@ -51,7 +51,6 @@ export default function QueryPage() {
   const [input, setInput]     = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
-  const token = useAuthStore(s => s.token)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -68,6 +67,7 @@ export default function QueryPage() {
 
     try {
       const url = `/api/v1/rag/query/stream?query=${encodeURIComponent(query)}`
+      const token = await getAccessToken()   // renews a Keycloak token that's about to expire
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
       const reader = resp.body.getReader()

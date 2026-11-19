@@ -1,0 +1,46 @@
+// NEXUS AI · Grafana Alloy: collects the logs of the NEXUS containers and
+// sends them to Loki. Labels on each line:
+//   container = nexus-api, nexus-celery, nexus-postgres, ...
+//   service   = the docker-compose service name (api, celery-worker, ...)
+//   stream    = stdout | stderr
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "nexus" {
+  targets = []
+
+  // Only NEXUS's own containers
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/nexus-.*"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
+loki.source.docker "nexus" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.nexus.rules
+  forward_to    = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

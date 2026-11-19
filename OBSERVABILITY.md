@@ -8,6 +8,7 @@ Four things that make NEXUS AI's behaviour visible and keep personal data out of
 | **Prometheus + Grafana** | http://localhost:3000 (dashboard "NEXUS AI") | Tickets, agent runs and outcomes, run times, AI query times, integration syncs, PII redactions, API traffic |
 | **LangSmith trace links** | Ticket page → Agent Trace → **View in LangSmith** | The full LLM trace of that ticket's latest agent run |
 | **OpenTelemetry + Jaeger** | http://localhost:16686 → service `nexus-api` | Every API request with its database queries and timings |
+| **Loki + Alloy** (logs) | Grafana → NEXUS AI dashboard → Logs; or Explore → Loki | Every NEXUS container's log output, searchable; the Security agent reads it |
 
 ---
 
@@ -128,7 +129,37 @@ side. Celery tasks aren't traced in Jaeger yet.
 
 ---
 
-## 6. Files
+## 6. Logs: Loki and Alloy
+
+**Alloy** reads the output of every `nexus-*` container through the Docker socket (read-only) and
+sends it to **Loki**, which keeps it for 7 days. Each line is labelled with its `container`
+(e.g. `nexus-api`, `nexus-celery`, `nexus-postgres`) and compose `service`.
+
+- **Grafana:** the NEXUS AI dashboard's **Logs** row shows error lines per container and the
+  latest error lines. For any search, open **Explore**, choose **Loki** and try
+  `{container="nexus-celery"} |= "Traceback"`.
+- **Security agent:** `scan_system_logs` (in `agents/tools/search_tools.py`) queries Loki for the
+  last hour. Before every assessment the agent looks for lines with the ticket's keywords and
+  for recent sign-in failures (Keycloak and API). Personal data in the lines is redacted, and
+  lines that look like instructions to an AI are withheld, because the result goes into the
+  LLM prompt. If Loki is down the agent is told so, not that the logs are clean.
+
+| `log_type` | Containers |
+|---|---|
+| `application` | api, celery worker, celery beat |
+| `database` | postgres, qdrant, redis |
+| `auth` | keycloak, api |
+| `network`, `system` | all NEXUS containers |
+
+Alloy's own status page is at http://localhost:12345. On Windows, Docker Desktop provides the
+socket Alloy reads (`/var/run/docker.sock`); no setting is needed.
+
+These are NEXUS's own logs. To give the agents a client's logs as well, add another Alloy source
+(for example a folder of log files) in `monitoring/alloy.alloy`.
+
+---
+
+## 7. Files
 
 | File | What |
 |---|---|
@@ -138,5 +169,7 @@ side. Celery tasks aren't traced in Jaeger yet.
 | `agents/supervisor.py` | LangSmith run IDs (`_run_config`) |
 | `backend/app/api/v1/agents.py` | `GET /agents/langsmith/{ticket_id}` |
 | `monitoring/prometheus.yml` | What Prometheus collects |
-| `monitoring/grafana/` | Grafana data source and the NEXUS AI dashboard |
+| `monitoring/grafana/` | Grafana data sources (Prometheus, Loki) and the NEXUS AI dashboard |
+| `monitoring/loki.yml`, `monitoring/alloy.alloy` | Log store and log collector |
+| `agents/tools/search_tools.py` | `scan_system_logs` (Loki query, redaction, injection filter) |
 | `backend/tests/test_quick_wins.py` | Tests for all of the above |
