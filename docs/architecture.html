@@ -60,6 +60,8 @@
   .kv { display: grid; grid-template-columns: 22% 78%; font-size: 8.4pt; border-top: 1px solid var(--line); }
   .kv div { padding: 2.4pt 5pt; border-bottom: 1px solid var(--line); }
   .kv div:nth-child(odd) { font-weight: 600; background: var(--soft); }
+  .kv2 { grid-template-columns: 12% 38% 12% 38%; font-size: 7.9pt; }
+  .kv2 div { padding: 2.2pt 4pt; }
   .note { border-left: 3px solid var(--async); background: var(--async-bg); padding: 5pt 8pt; font-size: 8.6pt; margin: 6pt 0; }
   .sev { font-weight: 700; white-space: nowrap; }
   .sev-h { color: var(--warn); } .sev-m { color: var(--async); } .sev-l { color: var(--muted); }
@@ -73,13 +75,14 @@
   .l-data::before { background: var(--data-bg); border-color: var(--data) !important; }
   .l-model::before { background: var(--model-bg); border-color: var(--model) !important; }
   .l-ident::before { background: var(--ident-bg); border-color: var(--ident) !important; }
+  .l-ops::before { background: var(--ops-bg); border-color: var(--ops) !important; }
 </style>
 </head>
 <body>
 
 <!-- ═══════════════ PAGE 1 · OVERVIEW ═══════════════ -->
 <section class="page">
-  <div class="meta">NEXUS AI · Architecture document · branch main · 17 Nov 2026</div>
+  <div class="meta">NEXUS AI · Architecture document · branch main · 19 Nov 2026</div>
   <h1 style="margin-top:6pt">NEXUS AI System Architecture</h1>
   <div class="sub">Multi-agent IT service intelligence platform: FastAPI, LangGraph agents, hybrid RAG, Celery, React</div>
 
@@ -90,23 +93,27 @@
   <p>The agents ground their answers in a knowledge base of runbooks and resolved tickets, searched with hybrid retrieval: dense vectors in
   Qdrant plus BM25 keywords, merged with reciprocal rank fusion and reranked by a cross-encoder. When a diagnosis is confident, the
   Knowledge agent writes it up as a new runbook and adds it to the knowledge base, so the system improves as tickets are resolved.</p>
-  <p>Everything runs locally under Docker Compose. The LLM and, by default, the embeddings come from the OpenAI API. Ollama is available
-  for local embeddings and hosts an optional fine-tuned model.</p>
+  <p>Tickets can also come from <b>ServiceNow</b>; the result goes back as a work note. People sign in with <b>Keycloak</b>, and personal data
+  is redacted before it is stored or sent to the LLM. Everything runs locally under Docker Compose; the LLM and, by default, the embeddings
+  come from the OpenAI API.</p>
 
   <h3>Key facts</h3>
-  <div class="kv">
-    <div>Deployment</div><div>Docker Compose, 8 containers on network <code>nexus-net</code>; React dev server runs on the host</div>
+  <div class="kv kv2">
+    <div>Deployment</div><div>Docker Compose, 14 containers on network <code>nexus-net</code>; React dev server runs on the host</div>
     <div>Backend</div><div>Python 3.12 · FastAPI · async SQLAlchemy + asyncpg · Pydantic v2 · Alembic</div>
-    <div>Orchestration</div><div>LangGraph <code>StateGraph</code> with Redis checkpointing (<code>AsyncRedisSaver</code>), human-in-the-loop via <code>interrupt()</code></div>
-    <div>Async work</div><div>Celery on Redis; queues <code>default</code>, <code>agents</code>, <code>rag</code>, <code>evals</code>, <code>fine_tuning</code>; Celery Beat for schedules</div>
-    <div>LLM</div><div>OpenAI chat via <code>langchain_openai</code>; config default <code>gpt-4o</code>, local <code>.env</code> uses <code>gpt-4o-mini</code>; temperature 0</div>
+    <div>Orchestration</div><div>LangGraph <code>StateGraph</code>, Redis checkpoints, human review via <code>interrupt()</code></div>
+    <div>Async work</div><div>Celery on Redis, 5 queues; Celery Beat for schedules</div>
+    <div>LLM</div><div>OpenAI <code>gpt-4o</code> (local <code>.env</code>: <code>gpt-4o-mini</code>); temperature 0</div>
     <div>Retrieval</div><div>Qdrant 1.12 (dense) + rank_bm25 (sparse) → RRF (k=60) → <code>ms-marco-MiniLM-L-6-v2</code> cross-encoder</div>
     <div>Embeddings</div><div>OpenAI <code>text-embedding-3-small</code> (1536-d, default) or Ollama <code>nomic-embed-text</code> (768-d)</div>
-    <div>Web search</div><div>Tavily (<code>TAVILY_API_KEY</code>), used by the Diagnosis agent only when the knowledge base has no good match</div>
-    <div>Data</div><div>PostgreSQL 16: users, tickets, ticket_status_history, audit_logs (Keycloak shares the database)</div>
-    <div>Identity</div><div>Keycloak 24 OIDC with JWKS verification and user auto-provisioning; local HS256 JWT as dev fallback</div>
+    <div>Web search</div><div>Tavily, used by the Diagnosis agent only when the knowledge base has no good match</div>
+    <div>Data</div><div>PostgreSQL 16: users, tickets, history, audit, integrations (shared with Keycloak)</div>
+    <div>Identity</div><div>Keycloak 24 sign-in (code + PKCE); realm roles set NEXUS roles; local HS256 accounts still accepted</div>
+    <div>Integrations</div><div>ServiceNow (OAuth or basic) and generic REST connectors; polling or webhook; results written back as work notes</div>
+    <div>Privacy</div><div>Presidio redacts names, e-mails, phone, card, PAN, Aadhaar, SSN, IBAN before storage and LLM calls</div>
+    <div>Observability</div><div>Prometheus + Grafana · OpenTelemetry → Jaeger · Loki + Alloy logs · LangSmith traces linked per ticket</div>
     <div>Frontend</div><div>React + Vite + Tailwind, React Query, Zustand; port 5173, proxies <code>/api</code> to port 8000</div>
-    <div>Quality</div><div>pytest, ruff, RAGAS + triage-accuracy evals with CI thresholds (GitHub Actions)</div>
+    <div>Quality</div><div>pytest (181 tests), ruff, RAGAS + triage-accuracy evals with CI thresholds (GitHub Actions)</div>
   </div>
 
   <h3>Implementation status</h3>
@@ -114,19 +121,17 @@
     <tr><th style="width:26%">Phase</th><th style="width:14%">Status</th><th>Notes</th></tr>
     <tr><td>1 · Foundation (API, auth, DB)</td><td><span class="tag t-ok">Done</span></td><td>RBAC, validated status transitions, status history, audit log</td></tr>
     <tr><td>2 · RAG pipeline</td><td><span class="tag t-ok">Done</span></td><td>Ingestion, hybrid search, reranking, streaming answers</td></tr>
-    <tr><td>3 · Agents + LangGraph</td><td><span class="tag t-ok">Done</span></td><td>4 agents, review panel (approve / reject), iteration guard; outcome saved on every run</td></tr>
+    <tr><td>3 · Agents + LangGraph</td><td><span class="tag t-ok">Done</span></td><td>4 agents, review panel, iteration guard, retries and stalled-run recovery</td></tr>
     <tr><td>4 · React dashboard</td><td><span class="tag t-ok">Done</span></td><td>Dashboard, tickets + review panel, AI query, live agent monitor, analytics page</td></tr>
-    <tr><td>5 · Tracing, evals, security</td><td><span class="tag t-part">Partial</span></td><td>Prompt-injection guard active; evals score below thresholds; Presidio and Prometheus code not wired in</td></tr>
+    <tr><td>5 · Tracing, evals, security</td><td><span class="tag t-part">Partial</span></td><td>PII redaction, metrics, tracing, logs, SSO done; evals below CI thresholds</td></tr>
     <tr><td>6 · Fine-tuning (QLoRA)</td><td><span class="tag t-part">Partial</span></td><td>Dataset export, notebook, Ollama deploy; model not used by agents</td></tr>
+    <tr><td>ServiceNow integration</td><td><span class="tag t-ok">Done</span></td><td>Import, agent run, work-note write-back; tested on a real instance</td></tr>
     <tr><td>Analytics agent</td><td><span class="tag t-no">Not started</span></td><td>Enum value only; the Analytics page is plain SQL, with no agent</td></tr>
   </table>
 
-  <h3>Contents</h3>
-  <ol class="toc">
-    <li>Summary</li><li>System context</li><li>Ticket lifecycle, end to end</li><li>Agent orchestration</li>
-    <li>RAG pipeline</li><li>Data model</li><li>Security and access control</li><li>Background processing</li>
-    <li>Deployment, observability and ML ops</li><li>Known gaps and recommendations</li>
-  </ol>
+  <p class="meta" style="margin-top:6pt"><b>Contents:</b> 1 Summary · 2 System context · 3 Ticket lifecycle · 4 Agent orchestration · 5 RAG pipeline ·
+  6 Data model · 7 Security and access control · 8 Background processing · 9 Deployment, observability and ML ops ·
+  10 External ticketing integrations · 11 Known gaps and recommendations</p>
 </section>
 
 <!-- ═══════════════ PAGE 2 · SYSTEM CONTEXT ═══════════════ -->
@@ -136,154 +141,185 @@
   The RAG pipeline is an in-process Python library, not a separate service; both the <code>/rag</code> endpoints and the agent tools import it.</p>
 
   <div class="fig">
-  <svg class="tall" viewBox="0 0 700 600" xmlns="http://www.w3.org/2000/svg">
+  <svg class="tall" viewBox="0 0 700 655" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="ar"viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6672"/></marker>
     </defs>
     <g font-size="10.5" fill="#1f2933">
     <!-- Row 1 -->
-    <rect x="10" y="10" width="440" height="62" rx="6" fill="#e8f0fa" stroke="#2563a8"/>
+    <rect x="10" y="10" width="290" height="62" rx="6" fill="#e8f0fa" stroke="#2563a8"/>
     <text x="22" y="30" font-weight="700" font-size="12" fill="#2563a8">React single-page app</text>
-    <text x="22" y="46">Vite · localhost:5173 · runs on the host, outside Docker</text>
-    <text x="22" y="61" fill="#5b6672" font-size="9.5">Login · Dashboard · Tickets · Ticket detail · AI Query · Agent Monitor · Analytics</text>
+    <text x="22" y="46">Vite · localhost:5173 · on the host</text>
+    <text x="22" y="61" fill="#5b6672" font-size="9.5">Tickets · AI Query · Agents · Analytics · Integrations</text>
 
-    <rect x="490" y="10" width="190" height="62" rx="6" fill="#e3f3f3" stroke="#23797a"/>
-    <text x="502" y="30" font-weight="700" font-size="12" fill="#23797a">Keycloak 24</text>
-    <text x="502" y="46">:8080 · OIDC realm nexus</text>
-    <text x="502" y="61" fill="#5b6672" font-size="9.5">JWTs verified via JWKS</text>
+    <rect x="335" y="10" width="170" height="62" rx="6" fill="#e3f3f3" stroke="#23797a"/>
+    <text x="347" y="30" font-weight="700" font-size="12" fill="#23797a">Keycloak 24</text>
+    <text x="347" y="46">:8080 · realm nexus</text>
+    <text x="347" y="61" fill="#5b6672" font-size="9.5">sign-in (PKCE) · roles · JWKS</text>
+
+    <rect x="535" y="10" width="155" height="62" rx="6" fill="#fff" stroke="#1f2933" stroke-dasharray="4 3"/>
+    <text x="547" y="30" font-weight="700" font-size="12">ServiceNow</text>
+    <text x="547" y="46">external · Table API</text>
+    <text x="547" y="61" fill="#5b6672" font-size="9.5">or the mock on :8090</text>
 
     <!-- FastAPI -->
-    <rect x="10" y="120" width="200" height="260" rx="6" fill="#ecebfb" stroke="#4f46b5"/>
-    <text x="22" y="140" font-weight="700" font-size="12" fill="#4f46b5">FastAPI backend</text>
-    <text x="22" y="155" fill="#5b6672" font-size="9.5">:8000 · /api/v1 · uvicorn</text>
-    <text x="22" y="178" font-weight="600">Middleware</text>
-    <text x="22" y="192" font-size="9.5">CORS · SlowAPI rate limit</text>
-    <text x="22" y="205" font-size="9.5">X-Request-ID + timing logs</text>
-    <text x="22" y="226" font-weight="600">Routers</text>
-    <text x="22" y="240" font-size="9.5">/health  /auth  /users  /analytics</text>
-    <text x="22" y="253" font-size="9.5">/tickets  status transitions</text>
-    <text x="22" y="266" font-size="9.5">/rag  ingest · search · query</text>
-    <text x="22" y="279" font-size="9.5">/agents  run · status · resume · trace</text>
-    <text x="22" y="298" font-weight="600">Auth</text>
-    <text x="22" y="311" font-size="9.5">Bearer JWT · RBAC (4 roles)</text>
-    <rect x="16" y="318" width="188" height="30" rx="4" fill="#fdecea" stroke="#b42318"/>
-    <text x="22" y="330" font-weight="600" fill="#b42318">Input guard</text>
-    <text x="22" y="343" font-size="9.5">injection check → 422 if flagged</text>
-    <text x="22" y="361" font-weight="600">Audit</text>
-    <text x="22" y="374" font-size="9.5">status history · audit_logs</text>
+    <rect x="10" y="110" width="200" height="270" rx="6" fill="#ecebfb" stroke="#4f46b5"/>
+    <text x="22" y="130" font-weight="700" font-size="12" fill="#4f46b5">FastAPI backend</text>
+    <text x="22" y="145" fill="#5b6672" font-size="9.5">:8000 · /api/v1 · /metrics</text>
+    <text x="22" y="166" font-weight="600">Middleware</text>
+    <text x="22" y="180" font-size="9.5">CORS · rate limit · request IDs</text>
+    <text x="22" y="193" font-size="9.5">Prometheus · OpenTelemetry</text>
+    <text x="22" y="212" font-weight="600">Routers</text>
+    <text x="22" y="226" font-size="9.5">/auth  /users  /tickets  /analytics</text>
+    <text x="22" y="239" font-size="9.5">/rag  ingest · search · query</text>
+    <text x="22" y="252" font-size="9.5">/agents  run · resume · retry · trace</text>
+    <text x="22" y="265" font-size="9.5">/integrations  test · sync · webhook</text>
+    <text x="22" y="284" font-weight="600">Auth</text>
+    <text x="22" y="297" font-size="9.5">Keycloak RS256 or local HS256 · RBAC</text>
+    <rect x="16" y="305" width="188" height="44" rx="4" fill="#fdecea" stroke="#b42318"/>
+    <text x="22" y="318" font-weight="600" fill="#b42318">Input guard + PII redaction</text>
+    <text x="22" y="331" font-size="9.5">injection check → 422 if flagged</text>
+    <text x="22" y="343" font-size="9.5">Presidio before storage / LLM</text>
+    <text x="22" y="365" font-weight="600">Audit</text>
+    <text x="22" y="376" font-size="9.5">status history · audit_logs (trace ID)</text>
 
     <!-- Redis / Celery -->
-    <rect x="250" y="120" width="180" height="62" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
-    <text x="262" y="140" font-weight="700" font-size="12" fill="#2f855a">Redis</text>
-    <text x="262" y="156" font-size="9.5">redis-stack-server · :6379</text>
-    <text x="262" y="170" font-size="9.5">db0 graph state · db1-2 Celery</text>
+    <rect x="250" y="110" width="170" height="62" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="262" y="130" font-weight="700" font-size="12" fill="#2f855a">Redis</text>
+    <text x="262" y="146" font-size="9.5">redis-stack-server · :6379</text>
+    <text x="262" y="160" font-size="9.5">graph state · Celery · heartbeats</text>
 
-    <rect x="470" y="120" width="210" height="62" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
-    <text x="482" y="140" font-weight="700" font-size="12" fill="#b7791f">Celery worker + beat</text>
-    <text x="482" y="156" font-size="9.5">concurrency 4 · acks_late · prefetch 1</text>
-    <text x="482" y="170" font-size="9.5">queues default · agents · rag · evals</text>
+    <rect x="455" y="110" width="235" height="62" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
+    <text x="467" y="130" font-weight="700" font-size="12" fill="#b7791f">Celery worker + beat</text>
+    <text x="467" y="146" font-size="9.5">agent runs (retry 1·2·4 min) · RAG jobs</text>
+    <text x="467" y="160" font-size="9.5">integration sync · write-back · stall check</text>
 
     <!-- Supervisor -->
-    <rect x="250" y="220" width="420" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
-    <text x="262" y="240" font-weight="700" font-size="12" fill="#7c3aad">LangGraph supervisor</text>
-    <text x="410" y="240" fill="#5b6672" font-size="9.5">runs inside the Celery worker</text>
-    <text x="262" y="256" font-size="9.5">injection pre-check → Triage → Security? → Diagnosis → Knowledge · HITL · guard</text>
-    <text x="262" y="270" font-size="9.5">Tools: rag_search · web_search (Tavily) · cve_lookup · check_sla_status · update_ticket · runbook</text>
+    <rect x="250" y="210" width="440" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+    <text x="262" y="230" font-weight="700" font-size="12" fill="#7c3aad">LangGraph supervisor</text>
+    <text x="410" y="230" fill="#5b6672" font-size="9.5">runs inside the Celery worker</text>
+    <text x="262" y="246" font-size="9.5">injection pre-check → Triage → Security? → Diagnosis → Knowledge · human review · guard</text>
+    <text x="262" y="260" font-size="9.5">Tools: rag_search · web_search (Tavily) · cve_lookup · scan_system_logs (Loki) · SLA · runbook</text>
 
     <!-- RAG -->
-    <rect x="250" y="320" width="420" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
-    <text x="262" y="340" font-weight="700" font-size="12" fill="#7c3aad">RAG pipeline</text>
-    <text x="350" y="340" fill="#5b6672" font-size="9.5">in-process library (rag/)</text>
-    <text x="262" y="356" font-size="9.5">Query: embed → dense 10 + BM25 10 → RRF → 20 candidates → rerank → top 3 → LLM</text>
-    <text x="262" y="370" font-size="9.5">Ingest: load → chunk 512/64 → embed → Qdrant upsert + BM25 update</text>
+    <rect x="250" y="300" width="440" height="56" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+    <text x="262" y="319" font-weight="700" font-size="12" fill="#7c3aad">RAG pipeline</text>
+    <text x="350" y="319" fill="#5b6672" font-size="9.5">in-process library (rag/)</text>
+    <text x="262" y="334" font-size="9.5">Query: embed → dense 10 + BM25 10 → RRF → 20 → rerank → top 3 → LLM</text>
+    <text x="262" y="348" font-size="9.5">Ingest: redact → load → chunk 512/64 → embed → Qdrant + BM25</text>
 
     <!-- Data row -->
-    <rect x="10" y="430" width="200" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
-    <text x="22" y="450" font-weight="700" font-size="12" fill="#2f855a">PostgreSQL 16</text>
-    <text x="22" y="466" font-size="9.5">host port 15432 · db nexusai</text>
-    <text x="22" y="480" font-size="9.5">users · tickets · status history</text>
-    <text x="22" y="493" font-size="9.5">audit_logs · Keycloak tables</text>
+    <rect x="10" y="405" width="200" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="22" y="425" font-weight="700" font-size="12" fill="#2f855a">PostgreSQL 16</text>
+    <text x="22" y="441" font-size="9.5">host port 15432 · db nexusai</text>
+    <text x="22" y="455" font-size="9.5">users · tickets · history · audit</text>
+    <text x="22" y="468" font-size="9.5">integrations · Keycloak tables</text>
 
-    <rect x="250" y="430" width="120" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
-    <text x="262" y="450" font-weight="700" font-size="12" fill="#2f855a">BM25 index</text>
-    <text x="262" y="466" font-size="9.5">rank_bm25, on disk</text>
-    <text x="262" y="480" font-size="9.5">loaded at API start</text>
-    <text x="262" y="493" font-size="9.5">rebuilt weekly</text>
+    <rect x="250" y="405" width="100" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="260" y="425" font-weight="700" font-size="12" fill="#2f855a">BM25 index</text>
+    <text x="260" y="441" font-size="9.5">rank_bm25</text>
+    <text x="260" y="455" font-size="9.5">on disk</text>
+    <text x="260" y="468" font-size="9.5">weekly rebuild</text>
 
-    <rect x="385" y="430" width="120" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
-    <text x="397" y="450" font-weight="700" font-size="12" fill="#2f855a">Qdrant 1.12</text>
-    <text x="397" y="466" font-size="9.5">:6333 REST · :6334</text>
-    <text x="397" y="480" font-size="9.5">nexus_knowledge</text>
-    <text x="397" y="493" font-size="9.5">payload: tenant, type</text>
+    <rect x="362" y="405" width="100" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="372" y="425" font-weight="700" font-size="12" fill="#2f855a">Qdrant 1.12</text>
+    <text x="372" y="441" font-size="9.5">:6333 · :6334</text>
+    <text x="372" y="455" font-size="9.5">nexus_knowledge</text>
+    <text x="372" y="468" font-size="9.5">tenant · type</text>
 
-    <rect x="520" y="430" width="150" height="58" rx="6" fill="#fdece2" stroke="#c05621"/>
-    <text x="532" y="450" font-weight="700" font-size="12" fill="#c05621">OpenAI API</text>
-    <text x="532" y="466" font-size="9.5">chat: gpt-4o / gpt-4o-mini</text>
-    <text x="532" y="480" font-size="9.5">text-embedding-3-small</text>
+    <rect x="474" y="405" width="104" height="72" rx="6" fill="#fdece2" stroke="#c05621"/>
+    <text x="484" y="425" font-weight="700" font-size="12" fill="#c05621">OpenAI API</text>
+    <text x="484" y="441" font-size="9.5">gpt-4o(-mini)</text>
+    <text x="484" y="455" font-size="9.5">embedding-3-small</text>
+    <text x="484" y="468" font-size="9.5">60 s timeout</text>
 
-    <rect x="520" y="505" width="150" height="58" rx="6" fill="#fdece2" stroke="#c05621" stroke-dasharray="4 3"/>
-    <text x="532" y="525" font-weight="700" font-size="12" fill="#c05621">Ollama</text>
-    <text x="532" y="541" font-size="9.5">:11434 · nomic-embed-text</text>
-    <text x="532" y="555" font-size="9.5">nexus-it (fine-tuned, unused)</text>
+    <rect x="590" y="405" width="100" height="72" rx="6" fill="#fdece2" stroke="#c05621" stroke-dasharray="4 3"/>
+    <text x="600" y="425" font-weight="700" font-size="12" fill="#c05621">Ollama</text>
+    <text x="600" y="441" font-size="9.5">:11434</text>
+    <text x="600" y="455" font-size="9.5">nomic-embed-text</text>
+    <text x="600" y="468" font-size="9.5">nexus-it (unused)</text>
+
+    <!-- Observability band -->
+    <rect x="10" y="515" width="680" height="96" rx="6" fill="#eef0f2" stroke="#5b6672"/>
+    <text x="22" y="533" font-weight="700" font-size="12" fill="#5b6672">Observability</text>
+    <text x="118" y="533" fill="#5b6672" font-size="9.5">collects from the API, the worker and every container</text>
+    <g font-size="9.5">
+      <rect x="20" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="28" y="558" font-weight="700">Prometheus</text><text x="28" y="572">:9090 · scrapes /metrics</text><text x="28" y="585">and worker :9101</text>
+      <rect x="154" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="162" y="558" font-weight="700">Grafana</text><text x="162" y="572">:3000 · NEXUS AI</text><text x="162" y="585">dashboard + logs</text>
+      <rect x="288" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="296" y="558" font-weight="700">Jaeger</text><text x="296" y="572">:16686 · API + DB</text><text x="296" y="585">spans (Zipkin)</text>
+      <rect x="422" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="430" y="558" font-weight="700">Loki + Alloy</text><text x="430" y="572">container logs, 7 d</text><text x="430" y="585">Alloy reads Docker</text>
+      <rect x="556" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672" stroke-dasharray="4 3"/>
+      <text x="564" y="558" font-weight="700">LangSmith</text><text x="564" y="572">cloud · LLM traces</text><text x="564" y="585">linked per ticket</text>
+    </g>
     </g>
 
     <!-- arrows -->
     <g stroke="#5b6672" stroke-width="1.2" fill="none" marker-end="url(#ar)">
-      <path d="M110,72 V118"/>
-      <path d="M450,41 H488" stroke-dasharray="4 3"/>
-      <path d="M210,151 H248"/>
-      <path d="M432,151 H468" marker-start="url(#ar)"/>
-      <path d="M575,182 V218"/>
-      <path d="M340,184 V218" marker-start="url(#ar)"/>
-      <path d="M210,251 H248"/>
-      <path d="M210,351 H248"/>
-      <path d="M460,282 V318"/>
-      <path d="M110,382 V428" marker-start="url(#ar)"/>
-      <path d="M310,382 V428" marker-start="url(#ar)"/>
-      <path d="M445,382 V428" marker-start="url(#ar)"/>
-      <path d="M600,382 V428"/>
-      <path d="M670,251 H690 V459 H672"/>
-      <path d="M512,382 V534 H518" stroke-dasharray="4 3"/>
+      <path d="M110,72 V108"/>
+      <path d="M300,41 H333" stroke-dasharray="4 3"/>
+      <path d="M612,108 V74" marker-start="url(#ar)"/>
+      <path d="M210,141 H248"/>
+      <path d="M422,141 H453" marker-start="url(#ar)"/>
+      <path d="M572,172 V208"/>
+      <path d="M335,174 V208" marker-start="url(#ar)"/>
+      <path d="M210,241 H248"/>
+      <path d="M210,328 H248"/>
+      <path d="M470,272 V298"/>
+      <path d="M110,380 V403" marker-start="url(#ar)"/>
+      <path d="M300,356 V403" marker-start="url(#ar)"/>
+      <path d="M412,356 V403" marker-start="url(#ar)"/>
+      <path d="M526,356 V403"/>
+      <path d="M640,356 V403" stroke-dasharray="4 3"/>
+      <path d="M210,365 H230 V513" stroke-dasharray="4 3"/>
+      <path d="M690,150 H697 V513" stroke-dasharray="4 3"/>
     </g>
     <g font-size="8.8" fill="#5b6672">
-      <text x="116" y="98">REST /api/v1 · Bearer JWT</text>
-      <text x="456" y="35">SSO</text>
-      <text x="214" y="145">enqueue</text>
-      <text x="434" y="145">consume</text>
-      <text x="580" y="204">run_supervisor()</text>
-      <text x="345" y="204">checkpoints</text>
-      <text x="213" y="245">resume</text>
-      <text x="213" y="345">/rag</text>
-      <text x="466" y="304">rag_search · runbook ingest</text>
-      <text x="116" y="410">asyncpg</text>
-      <text x="316" y="410">sparse</text>
-      <text x="451" y="410">dense · upsert</text>
-      <text x="606" y="410">embed · answer</text>
-      <text x="658" y="304">chat</text>
-      <text x="470" y="575">alt. embeddings</text>
+      <text x="116" y="94">REST · Bearer token</text>
+      <text x="304" y="35">SSO</text>
+      <text x="617" y="94">import · work notes</text>
+      <text x="214" y="135">enqueue</text>
+      <text x="424" y="135">consume</text>
+      <text x="577" y="194">run_supervisor()</text>
+      <text x="340" y="194">checkpoints</text>
+      <text x="213" y="235">resume</text>
+      <text x="213" y="322">/rag</text>
+      <text x="476" y="290">rag_search · ingest</text>
+      <text x="116" y="396">asyncpg</text>
+      <text x="306" y="396">sparse</text>
+      <text x="418" y="396">dense</text>
+      <text x="532" y="396">chat · embed</text>
+      <text x="646" y="396">alt.</text>
+      <text x="236" y="506">metrics · traces · logs</text>
     </g>
     <g font-size="8.8" fill="#5b6672">
-      <path d="M10,585 H40" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)"/>
-      <text x="46" y="588">call</text>
-      <path d="M80,585 H110" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)" marker-start="url(#ar)"/>
-      <text x="116" y="588">read and write</text>
-      <path d="M190,585 H220" stroke="#5b6672" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
-      <text x="226" y="588">optional / alternative</text>
+      <path d="M10,635 H40" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)"/>
+      <text x="46" y="638">call</text>
+      <path d="M80,635 H110" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)" marker-start="url(#ar)"/>
+      <text x="116" y="638">read and write</text>
+      <path d="M190,635 H220" stroke="#5b6672" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+      <text x="226" y="638">optional / alternative / external</text>
     </g>
   </svg>
-  <div class="legend"><span class="l-client">Client</span><span class="l-api">API</span><span class="l-async">Async jobs</span><span class="l-ai">AI layer</span><span class="l-data">Data stores</span><span class="l-model">Models</span><span class="l-ident">Identity</span></div>
+  <div class="legend"><span class="l-client">Client</span><span class="l-api">API</span><span class="l-async">Async jobs</span><span class="l-ai">AI layer</span><span class="l-data">Data stores</span><span class="l-model">Models</span><span class="l-ident">Identity</span><span class="l-ops">Observability</span></div>
   </div>
-  <div class="cap">Figure 1. Containers and their connections. Agent tools also read and write PostgreSQL directly (ticket lookups, SLA checks, writing resolutions); those links are omitted for clarity.</div>
+  <div class="cap">Figure 1. Containers and their connections. The browser signs in at Keycloak and sends its token to the API. The Celery worker talks to ServiceNow: it imports incidents and posts results back as work notes. Agent tools also read and write PostgreSQL directly (ticket lookups, SLA checks, writing resolutions); those links are omitted for clarity.</div>
 
   <h3>Component responsibilities</h3>
   <table>
     <tr><th style="width:22%">Component</th><th style="width:30%">Code</th><th>Responsibility</th></tr>
-    <tr><td>React SPA</td><td><code>frontend/src/</code></td><td>UI; stores the JWT in a Zustand auth store; polls agent status and trace</td></tr>
+    <tr><td>React SPA</td><td><code>frontend/src/</code></td><td>UI; keeps the token in a Zustand auth store and renews Keycloak tokens; polls agent status and trace</td></tr>
     <tr><td>FastAPI</td><td><code>backend/app/main.py</code>, <code>api/v1/</code></td><td>Auth, RBAC, ticket CRUD and lifecycle, RAG, agent and analytics endpoints</td></tr>
     <tr><td>Celery worker / beat</td><td><code>backend/app/workers/</code></td><td>Runs the agent pipeline, RAG ingestion and scheduled jobs</td></tr>
     <tr><td>LangGraph supervisor</td><td><code>agents/supervisor.py</code></td><td>Routes the ticket between agents, checkpoints state, pauses for humans</td></tr>
     <tr><td>Agents + tools</td><td><code>agents/*.py</code>, <code>agents/tools/</code></td><td>LLM reasoning steps with structured JSON output; tool calls to RAG, web, NVD, DB</td></tr>
     <tr><td>RAG library</td><td><code>rag/</code></td><td>Loading, chunking, embedding, hybrid retrieval, reranking, answer generation</td></tr>
+    <tr><td>Integrations</td><td><code>backend/app/integrations/</code></td><td>Connectors (ServiceNow, generic REST), sync engine, OAuth, write-back</td></tr>
+    <tr><td>Keycloak SSO</td><td><code>app/core/sso.py</code>, <code>frontend/src/auth/</code></td><td>Sign-in with PKCE, token checks, role mapping, realm setup commands</td></tr>
+    <tr><td>Observability</td><td><code>app/middleware/tracing.py</code>, <code>monitoring/</code></td><td>Metrics, OpenTelemetry, Grafana dashboard, Loki and Alloy config</td></tr>
     <tr><td>Evals / fine-tuning</td><td><code>evals/</code>, <code>fine_tuning/</code></td><td>Offline quality gates and an optional domain model</td></tr>
   </table>
 </section>
@@ -338,16 +374,16 @@
     </g>
     <g font-size="9" fill="#1f2933">
       <text x="66" y="62">1  POST /tickets</text>
-      <text x="181" y="82">2  injection check (422 if flagged) · insert ticket · status open · SLA due</text>
+      <text x="181" y="82">2  injection check (422) · redact PII · insert ticket · open · SLA due</text>
       <text x="66" y="112">3  POST /agents/run/{id}</text>
       <text x="181" y="132">4  process_ticket_task.delay()</text>
       <text x="70" y="152">reply at once: dispatched + task id</text>
       <text x="296" y="182">5  run_supervisor(ticket_id)</text>
-      <text x="415" y="202">6  load ticket · pre-check · in_progress</text>
+      <text x="415" y="202">6  load · pre-check · in_progress · save run ID</text>
       <text x="415" y="228">7  Triage: SLA check, LLM JSON</text>
       <text x="415" y="248">category · priority · next</text>
       <text x="415" y="276">8  checkpoint after every node</text>
-      <text x="415" y="306">9  Security (if flagged): NVD, PII scan</text>
+      <text x="415" y="306">9  Security (if flagged): NVD, PII, logs (Loki)</text>
       <text x="415" y="336">10 Diagnosis: RAG; web (Tavily) only if no good match</text>
       <text x="415" y="360" fill="#5b6672">Knowledge: runbook → RAG ingest</text>
       <text x="415" y="396">11 interrupt() · state saved</text>
@@ -360,7 +396,10 @@
     <text x="415" y="502" font-size="8.5" fill="#2f855a">Runs after the first run and after every resume (13)</text>
   </svg>
   </div>
-  <div class="cap">Figure 2. Sequence for one ticket. Dashed arrows are responses. In step 3 the API marks the ticket <code>in_progress</code> before queueing, so a second run is refused. In step 6, a ticket whose text matches an injection pattern is assigned to a human and the run stops before any LLM call. Approve and resolve and Reject (12–14) need no agent, so they finish inside the request; sending the ticket back to an agent instead (API only, <code>next_agent</code>) is queued as <code>resume_ticket_task</code>.</div>
+  <div class="cap">Figure 2. Sequence for one ticket. Dashed arrows are responses. In step 3 the API marks the ticket <code>in_progress</code> before queueing, so a second run is refused. In step 6, a ticket whose text matches an injection pattern is assigned to a human and the run stops before any LLM call. Approve and resolve and Reject (12–14) need no agent, so they finish inside the request; sending the ticket back to an agent instead (API only, <code>next_agent</code>) is queued as <code>resume_ticket_task</code>.
+  While a run is going it refreshes a heartbeat in Redis at every step. If OpenAI can't be reached, step 5 is retried after 1, 2 and 4 minutes;
+  a run that dies without a word (power cut, worker restart) is handed to a person within about 7 minutes, and <b>Retry agents</b> starts it again.
+  A ticket imported from ServiceNow enters at step 2 through the sync job instead of steps 1–3; see section 10.</div>
 
   <h3>Ticket status lifecycle</h3>
   <p>Manual status changes go through <code>POST /tickets/{id}/status</code>, which rejects any transition not in
@@ -410,7 +449,7 @@
       <rect x="160" y="120" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
       <text x="170" y="138" font-weight="700" font-size="11" fill="#7c3aad">Security</text>
       <text x="170" y="153">threat level · CVEs · PII</text>
-      <text x="170" y="165" fill="#5b6672" font-size="8.5">cve_lookup · rag_search · regex</text>
+      <text x="170" y="165" fill="#5b6672" font-size="8.5">cve_lookup · rag_search · Loki logs</text>
 
       <rect x="170" y="218" width="210" height="58" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
       <text x="180" y="236" font-weight="700" font-size="11" fill="#b7791f">Human review</text>
@@ -460,11 +499,11 @@
   <table>
     <tr><th style="width:13%">Agent</th><th style="width:30%">Inputs and tools</th><th style="width:32%">Output (JSON written to state)</th><th>Routing</th></tr>
     <tr><td><b>Triage</b></td><td>Title, description, user's category and priority, SLA status</td><td>category, priority (+ override reason), root-cause hypothesis, components, keywords, urgency signals, confidence</td><td>security / diagnosis, or human review</td></tr>
-    <tr><td><b>Security</b></td><td>NVD CVE lookup on triage keywords, RAG search in <i>security</i>, regex PII scan (email, phone, IP, card)</td><td>threat level and type, CVEs, PII types, immediate actions, remediation, compliance impact</td><td>human review if critical, escalate or containment; else diagnosis</td></tr>
+    <tr><td><b>Security</b></td><td>NVD CVE lookup, RAG search in <i>security</i>, regex PII scan, last hour of NEXUS logs (Loki)</td><td>threat level and type, CVEs, PII types, immediate actions, remediation, compliance impact</td><td>human review if critical, escalate or containment; else diagnosis</td></tr>
     <tr><td><b>Diagnosis</b></td><td>RAG search (top 3, category filter); Tavily web search (3 pages) only when RAG has no good match (no results, an error, or best rerank score &lt; <code>kb_min_relevance</code>); SLA status, triage hypothesis</td><td>root cause, confidence, evidence, numbered steps with commands, verification, prevention, ETA; <code>knowledge_sources</code>, <code>web_sources</code> (URLs) and <code>answer_basis</code>, with a Sources list in the resolution notes</td><td>human review if escalation needed; else knowledge</td></tr>
     <tr><td><b>Knowledge</b></td><td>Diagnosis result</td><td>If confidence ≥ 0.6: generated runbook ingested into RAG as <code>auto_&lt;ticket&gt;.md</code>; resolution and diagnosis saved to ticket</td><td>END</td></tr>
   </table>
-  <p>Every agent uses temperature 0 and asks for JSON only. If parsing fails, it extracts the first <code>{…}</code> block, and if that fails
+  <p>Every agent uses temperature 0, a 60 s request timeout, and asks for JSON only. If parsing fails, it extracts the first <code>{…}</code> block, and if that fails
   too it falls back to a safe default (low confidence, or escalation) so the graph never crashes on malformed output.</p>
 
   <h3>TicketState</h3>
@@ -473,7 +512,7 @@
     <tr><td>Ticket data</td><td><code>ticket_id</code> <code>ticket_number</code> <code>title</code> <code>description</code> <code>category</code> <code>priority</code> <code>created_by</code></td></tr>
     <tr><td>Agent outputs</td><td><code>triage_result</code> <code>security_result</code> <code>diagnosis_result</code> <code>knowledge_result</code> <code>final_resolution</code></td></tr>
     <tr><td>Control</td><td><code>next</code> <code>iteration</code> <code>hitl_required</code> <code>hitl_reason</code> <code>error</code></td></tr>
-    <tr><td>Trace</td><td><code>messages</code> (append-only via <code>add_messages</code>; shown by <code>/agents/trace</code>) · <code>langsmith_run_id</code></td></tr>
+    <tr><td>Trace</td><td><code>messages</code> (append-only via <code>add_messages</code>; shown by <code>/agents/trace</code>) · <code>langsmith_run_id</code> (saved before the run; linked from the ticket)</td></tr>
   </table>
 </section>
 
@@ -486,7 +525,7 @@
 
   <h3>Query path</h3>
   <div class="flow">
-    <div class="step c-client"><b>Query</b>/rag/query, /rag/query/stream or the rag_search agent tool</div><div class="arrow">→</div>
+    <div class="step c-client"><b>Query</b>/rag/query, /rag/query/stream or the rag_search tool; personal data redacted</div><div class="arrow">→</div>
     <div class="step c-model"><b>Embed</b>same model as ingestion</div><div class="arrow">→</div>
     <div class="step c-data"><b>Retrieve</b>Qdrant top 10 (tenant, type, category filters) + BM25 top 10</div><div class="arrow">→</div>
     <div class="step c-ai"><b>RRF fuse</b>score = Σ 1/(60 + rank); keep 20</div><div class="arrow">→</div>
@@ -497,7 +536,7 @@
   <h3>Ingestion path</h3>
   <div class="flow">
     <div class="step c-ops"><b>Sources</b>sample runbooks, raw text, PDF / Markdown uploads, resolved tickets, agent runbooks</div><div class="arrow">→</div>
-    <div class="step c-ai"><b>Load</b>documents + metadata (source type, category, tenant)</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Load + redact</b>documents + metadata; personal data removed (Presidio)</div><div class="arrow">→</div>
     <div class="step c-ai"><b>Chunk</b>512 tokens, 64 overlap; header-aware; drops chunks under 50</div><div class="arrow">→</div>
     <div class="step c-model"><b>Embed</b>OpenAI 1536-d or Ollama 768-d</div><div class="arrow">→</div>
     <div class="step c-data"><b>Index</b>Qdrant upsert with deterministic chunk IDs; BM25 add</div>
@@ -516,12 +555,13 @@
     <tr><td><code>chunk_size</code> / <code>chunk_overlap</code> / <code>min_chunk_size</code></td><td>512 / 64 / 50</td><td>Chunking, in tokens</td></tr>
     <tr><td><code>dense_top_k</code> / <code>sparse_top_k</code></td><td>10 / 10</td><td>Candidates from each retriever</td></tr>
     <tr><td><code>rrf_k</code></td><td>60</td><td>RRF smoothing constant</td></tr>
-    <tr><td><code>rerank_candidates</code></td><td>20</td><td>Fused candidates handed to the reranker (added 15 Nov 2026; was effectively 3)</td></tr>
+    <tr><td><code>rerank_candidates</code></td><td>20</td><td>Fused candidates handed to the reranker</td></tr>
     <tr><td><code>rerank_top_k</code></td><td>3</td><td>Passages kept for the LLM</td></tr>
     <tr><td><code>reranker_model</code></td><td>ms-marco-MiniLM-L-6-v2</td><td>Runs locally on CPU; falls back to fusion order if it fails to load</td></tr>
     <tr><td><code>llm_model</code> / <code>max_tokens</code></td><td>gpt-4o / 1024</td><td>Generation model (overridden by <code>LLM_MODEL</code>)</td></tr>
     <tr><td><code>kb_min_relevance</code></td><td>0.0</td><td>Best rerank score below which the Diagnosis agent searches the web (real matches score &gt; 0, unrelated ≈ −5 to −11)</td></tr>
     <tr><td><code>tavily_api_key</code> / <code>web_search_max_results</code></td><td>empty / 3</td><td>Web search; empty key disables it</td></tr>
+    <tr><td><code>llm_timeout_seconds</code> / <code>llm_max_retries</code></td><td>60 / 2</td><td>Per LLM request; then the worker's retries take over</td></tr>
   </table>
 
   <div class="note"><b>Changing the embedding provider</b> changes the vector size, so the Qdrant collection must be deleted
@@ -544,32 +584,45 @@
       <code>keycloak_id</code> unique · <code>is_keycloak_user</code> · <code>hashed_password</code> (local only) · <code>is_active</code> · timestamps, <code>last_login_at</code></div>
     <div class="card"><h4>tickets</h4>
       <code>id</code> PK · <code>ticket_number</code> unique · <code>title</code>, <code>description</code> · <code>status</code>, <code>priority</code>, <code>category</code>,
-      <code>assigned_agent</code> enums · <code>triage_output</code>, <code>diagnosis_output</code> JSONB · <code>resolution_notes</code> · <code>langsmith_run_id</code> ·
+      <code>assigned_agent</code> enums · <code>triage_output</code>, <code>diagnosis_output</code> JSONB · <code>resolution_notes</code> · <code>langsmith_run_id</code> · <code>agent_error</code> (why the last run stopped or is retrying) ·
       <code>created_by_id</code> → users · <code>sla_due_at</code>, <code>sla_breached</code> · created / updated / triaged / resolved timestamps</div>
     <div class="card"><h4>ticket_status_history</h4>
       <code>id</code> PK · <code>ticket_id</code> → tickets · <code>old_status</code>, <code>new_status</code> · <code>changed_by_id</code> → users · <code>reason</code> · <code>changed_at</code></div>
     <div class="card"><h4>audit_logs</h4>
       <code>id</code> PK · <code>user_id</code> → users · <code>action</code> · <code>resource_type</code>, <code>resource_id</code> · <code>details</code> JSONB ·
-      <code>trace_id</code>, <code>span_id</code>, <code>request_id</code> · <code>ip_address</code>, <code>user_agent</code> · <code>timestamp</code></div>
+      <code>trace_id</code>, <code>span_id</code> (filled from OpenTelemetry), <code>request_id</code> · <code>ip_address</code>, <code>user_agent</code> · <code>timestamp</code></div>
+    <div class="card" style="grid-column: span 2"><h4>integration_connections · external_ticket_links · integration_sync_runs</h4>
+      <b>connections:</b> name, <code>connector_type</code>, <code>config</code> JSONB (no secrets; only the names of <code>INTEGRATION_*</code> variables), value mappings, interval, switches, cursor ·
+      <b>links:</b> one row per external ticket, unique (<code>connection_id</code>, <code>external_id</code>) → <code>ticket_id</code>, number, URL, status, <code>content_hash</code>, <code>last_note_hash</code> ·
+      <b>sync runs:</b> trigger, counts (read / created / updated / unchanged / failed), status, errors, timings</div>
   </div>
   <p style="margin-top:6pt"><b>Other stores.</b> Redis: db0 LangGraph checkpoints (one thread per ticket), db1 Celery broker, db2 task results (24 h expiry).
+  Redis also holds agent-run heartbeats and per-ticket run locks.
   Qdrant: collection <code>nexus_knowledge</code>, payload carries <code>tenant_id</code>, <code>source_type</code>, <code>category</code> and source names.
   BM25: pickled index on local disk.</p>
 
-  <h2 style="margin-top:14pt">7. Security and access control</h2>
+</section>
+
+<!-- ═══════════════ PAGE · SECURITY ═══════════════ -->
+<section class="page">
+  <h2>7. Security and access control</h2>
   <h3>Authentication</h3>
-  <p>The API accepts two kinds of Bearer token. <b>Keycloak</b> tokens are verified against the realm's JWKS endpoint; on first use a matching
-  local user is created automatically from the token's email and username. <b>Local</b> HS256 tokens from <code>/auth/login</code> are the
-  development fallback, with refresh tokens valid for 7 days and access tokens for 60 minutes. Self-registration is refused when
-  <code>APP_ENV=production</code>; elsewhere it always creates a <code>user</code> (a <code>role</code> field is rejected with 422). The first admin is
-  promoted from the server shell with <code>python -m app.cli make-admin &lt;username&gt;</code>.</p>
+  <p>The token's own header decides how it is checked. <b>Keycloak</b> tokens (RS256) come from the web app's sign-in with authorization code +
+  PKCE (public client <code>nexus-frontend</code>). The API checks signature (realm keys, fetched again only for an unknown key ID), expiry, issuer
+  (the <code>nexus</code> realm by its browser or Docker address) and audience (<code>nexus-backend</code>). The first sign-in creates the NEXUS user,
+  or links a local account with the same e-mail if Keycloak verified it. The role follows the realm roles <code>nexus-admin</code> /
+  <code>nexus-agent</code> / <code>nexus-analyst</code> on every request. <b>Local</b> HS256 tokens from <code>/auth/login</code> never call Keycloak;
+  refresh tokens are refused as access tokens. Local sign-in and self-registration (always role <code>user</code>) are refused when
+  <code>APP_ENV=production</code>. CLI: <code>make-admin</code>, <code>sso-setup</code>, <code>sso-user</code>, <code>sso-check</code>.</p>
 
   <h3>Authorisation (RBAC)</h3>
   <table>
     <tr><th style="width:44%">Action</th><th>user</th><th>analyst</th><th>agent</th><th>admin</th></tr>
     <tr><td>Create, list and read tickets · RAG search and query · agent status and trace</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
     <tr><td>Update tickets · change status · run and resume agents</td><td></td><td></td><td>✓</td><td>✓</td></tr>
-    <tr><td>List users · change roles</td><td></td><td></td><td></td><td>✓</td></tr>
+    <tr><td>View integrations and sync history</td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>Sync now · post results to ServiceNow · Retry agents · LangSmith link</td><td></td><td></td><td>✓</td><td>✓</td></tr>
+    <tr><td>Add, edit, test integrations · list users · change roles</td><td></td><td></td><td></td><td>✓</td></tr>
   </table>
 
   <h3>Other controls</h3>
@@ -579,7 +632,8 @@
     <tr><td>CORS</td><td><span class="tag t-ok">Active</span></td><td>Origins from <code>CORS_ORIGINS</code> (localhost 3000 and 5173)</td></tr>
     <tr><td>Swagger / ReDoc</td><td><span class="tag t-ok">Active</span></td><td>Disabled in production</td></tr>
     <tr><td>Secrets</td><td><span class="tag t-ok">Active</span></td><td>Compose refuses to start without required <code>.env</code> values; example file holds placeholders only</td></tr>
-    <tr><td>PII detection</td><td><span class="tag t-part">Partial</span></td><td>Regex scan inside the Security agent only; Presidio redaction (<code>redact_pii</code>) written but not called</td></tr>
+    <tr><td>PII redaction</td><td><span class="tag t-ok">Active</span></td><td>Presidio on tickets, notes, imports, AI queries, knowledge-base ingest and log lines given to agents; keeps IPs, host names, error codes; <code>redact-pii</code> CLI for older tickets</td></tr>
+    <tr><td>Integration secrets</td><td><span class="tag t-ok">Active</span></td><td>Only in <code>INTEGRATION_*</code> environment variables; the database and API hold their names, never values; webhooks need a shared token</td></tr>
     <tr><td>Prompt-injection guard</td><td><span class="tag t-ok">Active</span></td><td><code>check_input_safety</code> rejects matching text with 422 on ticket create, resolution notes, status notes, RAG query / stream and text or file ingestion; <code>run_supervisor</code> re-checks before calling the LLM. Pattern-based: misses rephrased attacks and does not cover web or NVD results the agents fetch</td></tr>
     <tr><td>Multi-tenancy</td><td><span class="tag t-part">Partial</span></td><td>Tenant filter in RAG; agents always use tenant <code>default</code></td></tr>
   </table>
@@ -594,7 +648,10 @@
   whenever the event loop changes.</p>
   <table>
     <tr><th style="width:33%">Task</th><th style="width:12%">Queue</th><th style="width:20%">Trigger</th><th>What it does</th></tr>
-    <tr><td><code>process_ticket_task</code> · <code>resume_ticket_task</code></td><td>agents</td><td>/agents/run · /resume</td><td>Runs the supervisor for a ticket; resumes one sent back to an agent</td></tr>
+    <tr><td><code>process_ticket_task</code> · <code>resume_ticket_task</code></td><td>agents</td><td>/agents/run · /resume</td><td>Runs the supervisor; retries after 1, 2, 4 min if OpenAI is unreachable; one run per ticket (Redis lock)</td></tr>
+    <tr><td><code>sync_due_connections_task</code></td><td>default</td><td>Beat, every 1 min</td><td>Syncs each integration whose interval is due (one at a time per connection)</td></tr>
+    <tr><td><code>write_back_ticket_task</code></td><td>default</td><td>After an agent run</td><td>Posts the result to the source system as a work note, once</td></tr>
+    <tr><td><code>recover_stalled_runs_task</code></td><td>default</td><td>Beat, every 2 min</td><td>Hands in-progress tickets with no heartbeat for 5 min to a person, with the reason</td></tr>
     <tr><td><code>check_sla_breaches</code></td><td>default</td><td>Beat, every 15 min</td><td>Flags open, triaged or in-progress tickets past <code>sla_due_at</code></td></tr>
     <tr><td><code>ingest_resolved_tickets_task</code></td><td>rag</td><td>Beat, every 6 h</td><td>Adds up to 200 newly resolved tickets to the knowledge base</td></tr>
     <tr><td><code>rebuild_bm25_task</code></td><td>rag</td><td>Beat, every 7 days</td><td>Rebuilds the BM25 index from Qdrant</td></tr>
@@ -602,7 +659,11 @@
     <tr><td><code>index_ticket_for_rag</code>, <code>run_eval_suite</code></td><td>rag / evals</td><td>—</td><td>Stubs: log only</td></tr>
   </table>
 
-  <h2 style="margin-top:14pt">9. Deployment, observability and ML ops</h2>
+</section>
+
+<!-- ═══════════════ PAGE · DEPLOYMENT ═══════════════ -->
+<section class="page">
+  <h2>9. Deployment, observability and ML ops</h2>
   <h3>Docker Compose services</h3>
   <table>
     <tr><th style="width:18%">Service</th><th style="width:30%">Image</th><th style="width:17%">Host port</th><th>Notes</th></tr>
@@ -614,15 +675,19 @@
     <tr><td>api</td><td>./backend</td><td>8000</td><td>uvicorn <code>--reload</code>; mounts backend, rag and agents source</td></tr>
     <tr><td>celery-worker</td><td>./backend</td><td>—</td><td>Concurrency 4; ping health check</td></tr>
     <tr><td>celery-beat</td><td>./backend</td><td>—</td><td>Schedules the periodic tasks</td></tr>
+    <tr><td>servicenow-mock</td><td>./mock_servicenow</td><td>8090</td><td>Local copy of ServiceNow's Table API for demos and tests</td></tr>
+    <tr><td>prometheus · grafana</td><td>prom/prometheus 2.55 · grafana 11.3</td><td>9090 · 3000</td><td>Metrics store; NEXUS AI dashboard (anonymous view, admin to edit)</td></tr>
+    <tr><td>jaeger</td><td>jaegertracing/all-in-one 1.63</td><td>16686</td><td>Request traces, kept in memory</td></tr>
+    <tr><td>loki · alloy</td><td>grafana/loki 3.3 · grafana/alloy 1.5</td><td>— · 12345</td><td>Log store (7 days); collector reading the Docker socket read-only</td></tr>
   </table>
   <p>A development topology (bind-mounted source with auto-reload, Keycloak in dev mode). Production would use immutable images,
   Keycloak in production mode with its own database, and TLS behind a reverse proxy.</p>
 
   <h3>Observability</h3>
   <ul style="margin:0 0 6pt; padding-left:14pt">
-    <li><b>Logs:</b> loguru, one line per request with method, path, status, duration and <code>X-Request-ID</code> (also returned as a header).</li>
-    <li><b>Tracing:</b> LangSmith tracing is enabled through <code>LANGCHAIN_TRACING_V2</code>; the ticket column <code>langsmith_run_id</code> is never filled.</li>
-    <li><b>Metrics:</b> Prometheus counters and histograms (tickets created, agent runs, RAG latency, eval scores) are defined but not exposed or recorded.</li>
+    <li><b>Metrics:</b> the API serves <code>/metrics</code>; the worker's 4 processes share theirs (multiprocess mode) on :9101. Tickets by source, agent runs by outcome and time, AI query time, integration syncs, PII redactions, HTTP traffic. Known series start at 0 so the first event shows.</li>
+    <li><b>Traces:</b> OpenTelemetry spans for API requests and database queries → Jaeger (Zipkin JSON). LangSmith traces every agent run, named after the ticket and linked from its page.</li>
+    <li><b>Logs:</b> loguru with request IDs; Alloy ships every <code>nexus-*</code> container's output to Loki. An "error line" needs an error marker (<code>| ERROR |</code>, <code>ERROR/</code>, <code>FATAL:</code>, tracebacks, <code>LOGIN_ERROR</code>); database query logging is ignored.</li>
     <li><b>Health:</b> <code>/health/</code> liveness, <code>/health/ready</code> checks DB and Redis, <code>/health/info</code>.</li>
   </ul>
 
@@ -640,24 +705,72 @@
   </div>
 </section>
 
+<!-- ═══════════════ PAGE · INTEGRATIONS ═══════════════ -->
+<section class="page">
+  <h2>10. External ticketing integrations</h2>
+  <p>A connector framework brings tickets in from other systems and sends results back. ServiceNow is the first connector, tested against a
+  real developer instance; a generic REST connector covers other systems through configuration. The source system stays the system of record.</p>
+
+  <h3>Life of an imported ticket</h3>
+  <div class="flow">
+    <div class="step c-client"><b>ServiceNow</b>incident created, state New</div><div class="arrow">→</div>
+    <div class="step c-async"><b>Sync</b>Beat checks every minute; each connection syncs on its own interval, or at once by webhook</div><div class="arrow">→</div>
+    <div class="step c-api"><b>Save</b>one NEXUS ticket per incident, personal data redacted, unchanged ones skipped</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Agents</b>run once, only for tickets that arrive open</div><div class="arrow">→</div>
+    <div class="step c-async"><b>Write back</b>diagnosis and steps posted as an internal work note, never twice</div>
+  </div>
+
+  <h3>Connectors</h3>
+  <table>
+    <tr><th style="width:18%">Connector</th><th style="width:40%">Sign-in and transport</th><th>Notes</th></tr>
+    <tr><td>ServiceNow</td><td>Table API; OAuth client credentials (used here), OAuth password, basic or bearer; tokens cached and renewed 60 s before expiry, one retry on 401</td><td>State and priority mapped to NEXUS (1 New → open … 7 Closed); work notes via PATCH; optional "set Resolved" with close code</td></tr>
+    <tr><td>Generic REST</td><td>Field map with dot paths, paging, since-parameter, note template</td><td>Another system without code, e.g. a Jira or in-house API</td></tr>
+    <tr><td>Mock ServiceNow</td><td>Local container on :8090, same Table API, web UI, webhook push</td><td>Demos and the 36 integration tests</td></tr>
+  </table>
+
+  <h3>Rules that keep syncing safe</h3>
+  <table>
+    <tr><th style="width:42%">Rule</th><th>Why</th></tr>
+    <tr><td>One NEXUS ticket per external ticket (unique per connection)</td><td>Re-syncing never duplicates</td></tr>
+    <tr><td>Unchanged tickets skipped by content hash</td><td>NEXUS's own work notes don't cause re-imports or re-runs</td></tr>
+    <tr><td>Status follows the source only when the source's status changes</td><td>A ticket NEXUS resolved isn't reopened by an unrelated edit</td></tr>
+    <tr><td>Each ticket saved in its own transaction; the cursor never passes a failure</td><td>One bad record can't fail the batch, and nothing is silently skipped</td></tr>
+    <tr><td>One sync per connection at a time (Postgres advisory lock), 2-minute overlap</td><td>Schedule, Sync now and push can't collide; late updates aren't missed</td></tr>
+    <tr><td>Credentials only in <code>INTEGRATION_*</code> environment variables</td><td>The database and the API never hold or return secrets</td></tr>
+    <tr><td>Imported tickets are created by an inactive <code>integrations</code> user</td><td>It has no password and can't sign in</td></tr>
+  </table>
+  <p>Setup, the demo flow and the ServiceNow OAuth steps are in <code>INTEGRATIONS.md</code>; the API is under <code>/api/v1/integrations</code>
+  and the screen is <b>Integrations</b> in the web app.</p>
+</section>
+
 <!-- ═══════════════ PAGE 8 · GAPS ═══════════════ -->
 <section class="page">
-  <h2>10. Known gaps and recommendations</h2>
-  <p>Found while reviewing the code on 15 Nov 2026. Severity reflects impact on correctness or security, not effort.</p>
+  <h2>11. Known gaps and recommendations</h2>
+  <p>From the code reviews of 15 and 19 Nov 2026. Severity reflects impact on correctness or security, not effort.</p>
   <table>
     <tr><th style="width:9%">Severity</th><th style="width:38%">Gap</th><th>Recommendation</th></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>Eval scores below CI thresholds.</b> The latest local RAGAS run scored below all four thresholds, so the gate on <code>main</code> will fail.</td><td>Re-run evals after the reranker fix; improve retrieval or ground-truth data before enforcing the gate.</td></tr>
-    <tr><td class="sev sev-m">Medium</td><td><b>PII redaction not applied.</b> Personal data in tickets goes to the LLM and into the knowledge base as written.</td><td>Call <code>redact_pii</code> before storage or ingestion.</td></tr>
+    <tr><td class="sev sev-m">Medium</td><td><b>Development settings for identity.</b> Keycloak runs <code>start-dev</code> over HTTP and shares the NEXUS database; the web app keeps the Keycloak refresh token in browser storage.</td><td>Production: Keycloak <code>start</code> with HTTPS and its own database; consider a backend-for-frontend so tokens stay out of the browser.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>Injection guard is pattern-only.</b> Rephrased attacks pass, and fetched web and NVD text is not checked.</td><td>Wrap untrusted text in delimiters in every agent prompt and instruct the model to treat it as data.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>Agents ignore tenancy.</b> Runbooks and searches from agents always use tenant <code>default</code>.</td><td>Carry tenant ID in <code>TicketState</code> and pass it through the tools.</td></tr>
     <tr><td class="sev sev-m">Medium</td><td><b>One Redis connection per graph use.</b> Every run, status, resume and trace call opens a new checkpointer connection and re-runs setup.</td><td>Create the checkpointer once per process (API lifespan, worker init).</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Resume loop (API only).</b> Sending an approved ticket back to an agent with <code>next_agent</code> can escalate again for the same reason, cycling until the guard stops it at 8. The app's Approve ends the run instead.</td><td>Record that a human approved and skip re-escalation for the same reason.</td></tr>
-    <tr><td class="sev sev-l">Low</td><td><b>Observability unfinished.</b> <code>langsmith_run_id</code> never set; Prometheus metrics not exposed.</td><td>Capture the run ID from the tracer callback; mount a <code>/metrics</code> endpoint.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Celery work not in Jaeger.</b> API requests are traced; worker tasks (agent runs, syncs) are not.</td><td>Add OpenTelemetry's Celery instrumentation with the same exporter.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Retry after a human review restarts from Triage.</b> If a resumed run fails, Retry agents runs the whole graph again and the review decision is not replayed.</td><td>Resume from the checkpoint when the failed run was a resume.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>Agents see only NEXUS's own logs.</b> Loki holds the NEXUS containers' logs, not the client systems the tickets are about.</td><td>Add client log sources to Alloy (files or syslog) with their own labels.</td></tr>
+    <tr><td class="sev sev-l">Low</td><td><b>bcrypt version warning.</b> Each local sign-in logs <code>AttributeError: module 'bcrypt' has no attribute '__about__'</code>, which shows as an error line.</td><td>Pin <code>bcrypt</code> to 4.0.x or move from passlib to bcrypt directly.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Stub tasks and unused model.</b> <code>index_ticket_for_rag</code>, <code>run_eval_suite</code> only log; the fine-tuned <code>nexus-it</code> model is not used.</td><td>Implement or remove the stubs; add a provider switch so agents can use the local model.</td></tr>
     <tr><td class="sev sev-l">Low</td><td><b>Analytics agent missing.</b> Present in the enum only; the Analytics page uses SQL, not an agent.</td><td>Build it or remove the references.</td></tr>
   </table>
 
   <h3>Recently fixed</h3>
+  <p><b>ServiceNow integration</b> (commits <code>7c00250</code>, <code>34561cc</code>). Connector framework, sync engine, OAuth, write-back, mock ServiceNow, Integrations page; see section 10.</p>
+  <p><b>Observability wired in</b> (<code>a916ec7</code>, <code>21800e0</code>). Presidio redaction is applied everywhere text is stored or sent to the LLM;
+  Prometheus metrics with Grafana; LangSmith run IDs saved and linked; OpenTelemetry traces to Jaeger, with audit rows carrying the trace ID.</p>
+  <p><b>Runs stuck after a power cut</b> (<code>eacabe2</code>). Network failures are retried, dead runs are found by heartbeat and handed to a person, and <b>Retry agents</b> restarts them.</p>
+  <p><b>Single sign-on and log search</b> (<code>919e49b</code>, <code>54cdf3a</code>, <code>ce4f69e</code>). Keycloak sign-in with PKCE and role mapping; Loki + Alloy;
+  the Security agent now actually calls its log tool (it was imported but unused), with redaction and an injection filter. Local tokens no longer
+  call Keycloak on every request, and refresh tokens are no longer accepted as access tokens.</p>
   <p><b>Reranker starved of candidates</b> (commit <code>ef25668</code>). Hybrid search previously cut the fused list to 3 before reranking,
   so the cross-encoder could only reorder those 3. It now receives up to 20 candidates (<code>rerank_candidates</code>) and selects the best 3.</p>
   <p><b>Prompt-injection guard wired in</b> (commit <code>b8a4c8e</code>). The existing pattern check now runs on every API path that
@@ -668,7 +781,7 @@
   <p><b>Self-registration accepted any role.</b> <code>/auth/register</code> now always creates a <code>user</code> and rejects a <code>role</code>
   field; the first admin is promoted with the <code>make-admin</code> CLI command, which writes an audit-log entry.</p>
   <p><b>CI eval gate used the wrong key.</b> The workflow now passes <code>OPENAI_API_KEY</code>, which the code actually reads.</p>
-  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (90 tests as of 17 Nov 2026).</p>
+  <p><b>Failing chunker test.</b> <code>test_chunk_id_is_deterministic</code> now uses text longer than <code>min_chunk_size</code>; the full suite passes (181 tests as of 19 Nov 2026).</p>
   <p><b>Web search blocked; sources not recorded</b> (commit <code>e426043</code>). The DuckDuckGo tool was rate-limited and its error text
   reached the LLM as if it were results. Tavily now runs only when the knowledge base has no good match, failures are stated plainly, and
   each diagnosis saves the internal documents or web URLs it used.</p>

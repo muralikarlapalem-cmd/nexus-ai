@@ -199,7 +199,7 @@ All paths are prefixed with `/api/v1`.
 | POST | `/auth/login` | None (dev) | Local login → JWT |
 | POST | `/auth/refresh` | Refresh token | New access token |
 | GET | `/auth/me` | Bearer | Current user profile |
-| GET | `/auth/keycloak-url` | None | Keycloak login URL |
+| GET | `/auth/sso-config` | None | Keycloak sign-in settings for the web app (see [SSO.md](SSO.md)) |
 | GET | `/users/` | Admin | List all users |
 | GET | `/users/me` | Bearer | Current user's own profile |
 | PATCH | `/users/{id}/role` | Admin | Change a user's role |
@@ -236,6 +236,7 @@ All paths are prefixed with `/api/v1`.
 | POST | `/agents/resume/{ticket_id}` | Agent/Admin | Resume after human review: `{"approved": bool, "next_agent": str, "notes": str}`. Saves the outcome to the ticket; returns `"paused"` if the run stopped for review again, 409 if nothing is paused |
 | GET | `/agents/trace/{ticket_id}` | Bearer | Agent message trace, current node, iteration count |
 | GET | `/agents/langsmith/{ticket_id}` | Agent/Admin | Link to the ticket's latest agent run in LangSmith |
+| POST | `/agents/retry/{ticket_id}` | Agent/Admin | Start the agents again after a run stopped (network/power drop, provider errors) |
 
 ### Integrations
 
@@ -324,6 +325,7 @@ All of these numbers are settings in `rag/config.py` (`dense_top_k`, `sparse_top
 | Every 6 h | `ingest_resolved_tickets_task`: add newly resolved tickets to RAG |
 | Every 7 days | `rebuild_bm25_task`: rebuild the BM25 index from Qdrant |
 | Every minute | `sync_due_connections_task`: sync each integration whose interval has passed |
+| Every 2 min | `recover_stalled_runs_task`: find agent runs with no heartbeat for 5 min and hand them to a human (reason on the ticket) |
 | After each agent run | `write_back_ticket_task`: post the result to the ticket's source system |
 
 ---

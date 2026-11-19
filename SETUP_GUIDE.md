@@ -104,7 +104,21 @@ TAVILY_API_KEY=tvly-your-key-here
 # Optional (Phase 5 tracing):
 LANGSMITH_API_KEY=ls__your-key-here
 LANGCHAIN_TRACING_V2=true
+
+# Required: Keycloak admin (used by sso-setup / sso-user)
+KC_ADMIN=admin
+KC_ADMIN_PASSWORD=pick-a-strong-password
+
+# Required: Grafana admin (docker compose refuses to start without it)
+GRAFANA_ADMIN_PASSWORD=pick-a-strong-password
+
+# ServiceNow integration secrets (names must start with INTEGRATION_), see INTEGRATIONS.md
+INTEGRATION_SERVICENOW_MOCK_PASSWORD=pick-a-password
+INTEGRATION_SERVICENOW_MOCK_WEBHOOK_SECRET=a-long-random-string
 ```
+
+> **Keycloak sets its admin password only on its first start.** Changing `KC_ADMIN_PASSWORD`
+> later doesn't reach Keycloak; see the Keycloak rows under Troubleshooting.
 
 > Get your OpenAI API key at: https://platform.openai.com/api-keys
 
@@ -115,7 +129,9 @@ LANGCHAIN_TRACING_V2=true
 Make sure Docker Desktop is running, then:
 
 ```bash
-# From project root:
+# From project root. First time only: build the api image on its own first
+# (the other app containers reuse it; a slow network may need a retry):
+docker compose build api
 docker compose up -d
 
 # Verify all services are healthy:
@@ -128,11 +144,19 @@ nexus-postgres   healthy
 nexus-redis      healthy
 nexus-qdrant     healthy
 nexus-ollama     running   ← pulls nomic-embed-text on first start (~3 min)
-nexus-keycloak   running
-nexus-api        running
-nexus-celery     running
-nexus-beat       running
+nexus-keycloak          running
+nexus-servicenow-mock   running   ← stand-in ServiceNow for demos (port 8090)
+nexus-api               running
+nexus-celery            running
+nexus-beat              running   ← also checks for stalled agent runs every 2 min
+nexus-prometheus        running
+nexus-grafana           running
+nexus-jaeger            running
+nexus-loki              running
+nexus-alloy             running   ← ships the containers' logs to Loki
 ```
+
+That's 14 containers. See [OBSERVABILITY.md](OBSERVABILITY.md) for Grafana, Prometheus, Jaeger and Loki.
 
 Check logs if anything fails:
 ```bash
@@ -268,6 +292,18 @@ Open http://localhost:5173 in your browser.
 
 Login with the admin account you created in Step 6.
 
+### Single sign-on with Keycloak (optional, recommended for demos)
+
+```bash
+docker compose exec api python -m app.cli sso-setup        # realm, roles, web-app client (safe to re-run)
+docker compose exec api python -m app.cli sso-user priya --email priya@example.com --role admin
+docker compose exec api python -m app.cli sso-user ravi  --email ravi@example.com  --role agent
+```
+
+Reload http://localhost:5173 and click **Sign in with Keycloak**. The Keycloak sign-in page
+for NEXUS users has `/realms/nexus/` in its address; http://localhost:8080/admin is the
+Keycloak admin console, where only `admin` can sign in. Full details: [SSO.md](SSO.md).
+
 ---
 
 ## Step 10 — Run Evaluations (Phase 5)
@@ -317,10 +353,15 @@ chmod +x fine_tuning/deploy_ollama.sh
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | FastAPI Docs | http://localhost:8000/docs | — |
-| React Frontend | http://localhost:5173 | the user you registered above |
+| React Frontend | http://localhost:5173 | the user you registered above, or **Sign in with Keycloak** |
 | Qdrant Dashboard | http://localhost:6333/dashboard | — |
-| Keycloak Admin | http://localhost:8080 | `KC_ADMIN` / `KC_ADMIN_PASSWORD` from `.env` |
+| Keycloak Admin console | http://localhost:8080/admin | `KC_ADMIN` / `KC_ADMIN_PASSWORD` from `.env` (admin only, not NEXUS users) |
 | Ollama | http://localhost:11434 | — |
+| Grafana | http://localhost:3000 | `admin` / `GRAFANA_ADMIN_PASSWORD` from `.env` |
+| Prometheus | http://localhost:9090 | — |
+| Jaeger (traces) | http://localhost:16686 | — |
+| Alloy (log shipper UI) | http://localhost:12345 | — |
+| Mock ServiceNow | http://localhost:8090 | see [INTEGRATIONS.md](INTEGRATIONS.md) |
 
 ---
 
@@ -358,3 +399,13 @@ Add `.vscode/tasks.json` to run common commands from the VS Code Command Palette
 **LangGraph agents timeout?** Ensure `OPENAI_API_KEY` is set in `.env` and the account has quota.
 
 **Frontend can't reach API?** The Vite proxy (`/api → localhost:8000`) requires the FastAPI server to be running on port 8000.
+
+**Docker build fails with "No matching distribution found"?** A slow or dropped network during `pip install`. Run `docker compose build api` again; it resumes from the cached layers.
+
+**Keycloak: a NEXUS user gets "Invalid username or password" with the right password?** They're on the admin console (`/admin`). Start from the NEXUS app → **Sign in with Keycloak**; the address must contain `/realms/nexus/`. To check a user: `docker compose exec api python -m app.cli sso-check <username> --test-password` (add `--unlock` if 30 wrong tries locked them).
+
+**`sso-setup` says "Could not sign in to Keycloak as 'admin' (401)"?** `KC_ADMIN_PASSWORD` changed after Keycloak's first start. In the admin console reset admin's password (realm master → Users → admin → Credentials, Temporary off) to the one in `.env`, then `docker compose up -d --force-recreate api`.
+
+**Grafana's Logs panels show red triangles / no data?** Grafana reads its data sources only at start-up: `docker compose restart grafana`.
+
+**An agent run stopped after a power or Wi-Fi drop?** A lost connection is retried after 1, 2 and 4 minutes; a run that died is handed to a human within about 7 minutes, with the reason on the ticket. Then click **Retry agents** on the ticket page.

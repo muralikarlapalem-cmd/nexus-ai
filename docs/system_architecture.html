@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NEXUS AI System Architecture (overview)</title>
+<!-- Source of nexus_ai_system_architecture.pdf. The drawings are copied from docs/architecture.html;
+     update that file first, then this one, and print both to PDF (Chromium, A4). -->
+<style>
+  @page { size: A4 landscape; margin: 9mm 11mm 9mm 11mm; }
+  :root {
+    --ink: #1f2933; --muted: #5b6672; --line: #d4d9df; --soft: #f4f6f8;
+    --client: #2563a8; --client-bg: #e8f0fa;
+    --api: #4f46b5; --api-bg: #ecebfb;
+    --async: #b7791f; --async-bg: #fdf3e1;
+    --ai: #7c3aad; --ai-bg: #f3eafa;
+    --data: #2f855a; --data-bg: #e6f4ec;
+    --model: #c05621; --model-bg: #fdece2;
+    --ident: #23797a; --ident-bg: #e3f3f3;
+    --ops: #5b6672; --ops-bg: #eef0f2;
+    --warn: #b42318; --warn-bg: #fdecea;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: #fff; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: var(--ink); font-size: 9pt; line-height: 1.38; margin: 0; }
+  h1 { font-size: 21pt; margin: 0 0 3pt; letter-spacing: -0.3pt; }
+  h2 { font-size: 13.5pt; margin: 0 0 5pt; padding-bottom: 3pt; border-bottom: 1.5px solid var(--ink); }
+  h3 { font-size: 10.4pt; margin: 8pt 0 3pt; }
+  p { margin: 0 0 5pt; }
+  svg.tall { max-height: 112mm; }
+  svg.mid { max-height: 74mm; }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+  .sub { color: var(--muted); font-size: 10.5pt; margin-bottom: 10pt; }
+  .meta { color: var(--muted); font-size: 8.5pt; }
+  table { width: 100%; border-collapse: collapse; margin: 3pt 0 6pt; font-size: 8.2pt; line-height: 1.32; }
+  th, td { text-align: left; vertical-align: top; padding: 2.6pt 5pt; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 8.4pt; background: var(--soft); padding: 0 2pt; border-radius: 2px; }
+  .fig { border: 1px solid var(--line); border-radius: 6px; padding: 6pt; margin: 4pt 0 3pt; break-inside: avoid; }
+  .cap { font-size: 8pt; color: var(--muted); margin: 2pt 0 6pt; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: "Segoe UI", Arial, sans-serif; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 7pt 8pt; break-inside: avoid; }
+  .card h4 { margin: 0 0 3pt; font-size: 9.6pt; }
+  .card ul { margin: 0; padding-left: 12pt; }
+  .tag { display: inline-block; font-size: 7.6pt; font-weight: 600; padding: 0 5pt; border-radius: 8px; line-height: 14pt; }
+  .t-ok { background: var(--data-bg); color: var(--data); }
+  .t-part { background: var(--async-bg); color: var(--async); }
+  .t-no { background: var(--warn-bg); color: var(--warn); }
+  .flow { display: flex; align-items: stretch; gap: 0; margin: 4pt 0 8pt; }
+  .step { flex: 1; border: 1px solid; border-radius: 5px; padding: 5pt 6pt; font-size: 8pt; line-height: 1.35; }
+  .step b { display: block; font-size: 8.6pt; margin-bottom: 2pt; }
+  .arrow { flex: 0 0 14pt; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11pt; }
+  .c-client { border-color: var(--client); background: var(--client-bg); }
+  .c-api { border-color: var(--api); background: var(--api-bg); }
+  .c-ai { border-color: var(--ai); background: var(--ai-bg); }
+  .c-data { border-color: var(--data); background: var(--data-bg); }
+  .c-model { border-color: var(--model); background: var(--model-bg); }
+  .c-ops { border-color: var(--ops); background: var(--ops-bg); }
+  .c-async { border-color: var(--async); background: var(--async-bg); }
+  .kv { display: grid; grid-template-columns: 22% 78%; font-size: 8.4pt; border-top: 1px solid var(--line); }
+  .kv div { padding: 2.4pt 5pt; border-bottom: 1px solid var(--line); }
+  .kv div:nth-child(odd) { font-weight: 600; background: var(--soft); }
+  .kv2 { grid-template-columns: 12% 38% 12% 38%; font-size: 7.9pt; }
+  .kv2 div { padding: 2.2pt 4pt; }
+  .note { border-left: 3px solid var(--async); background: var(--async-bg); padding: 5pt 8pt; font-size: 8.6pt; margin: 6pt 0; }
+  .sev { font-weight: 700; white-space: nowrap; }
+  .sev-h { color: var(--warn); } .sev-m { color: var(--async); } .sev-l { color: var(--muted); }
+  .toc { columns: 2; font-size: 9.4pt; padding-left: 14pt; margin: 4pt 0 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4pt 12pt; font-size: 7.8pt; color: var(--muted); margin-top: 4pt; }
+  .legend span::before { content: ""; display: inline-block; width: 9pt; height: 9pt; border-radius: 2px; margin-right: 3pt; vertical-align: -1pt; border: 1px solid; }
+  .l-client::before { background: var(--client-bg); border-color: var(--client) !important; }
+  .l-api::before { background: var(--api-bg); border-color: var(--api) !important; }
+  .l-async::before { background: var(--async-bg); border-color: var(--async) !important; }
+  .l-ai::before { background: var(--ai-bg); border-color: var(--ai) !important; }
+  .l-data::before { background: var(--data-bg); border-color: var(--data) !important; }
+  .l-model::before { background: var(--model-bg); border-color: var(--model) !important; }
+  .l-ident::before { background: var(--ident-bg); border-color: var(--ident) !important; }
+  .l-ops::before { background: var(--ops-bg); border-color: var(--ops) !important; }
+
+  .head { display:flex; justify-content:space-between; align-items:baseline; border-bottom:1.5px solid var(--ink); padding-bottom:3pt; margin-bottom:6pt; }
+  .head h1 { font-size:17pt; margin:0; }
+  .head .meta { text-align:right; }
+  .row { display:flex; gap:12pt; }
+  .side { flex:0 0 66mm; font-size:8.3pt; }
+  .side h3 { margin-top:4pt; }
+  .side ul { padding-left:12pt; margin:0 0 4pt; }
+  .flow { margin:2pt 0 4pt; } .flow .step { font-size:7.4pt; padding:3pt 5pt; }
+  section:last-of-type h3 { margin:4pt 0 2pt; }
+  .foot { position:fixed; bottom:0; left:0; right:0; font-size:7pt; color:var(--muted); display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+<section class="page">
+  <div class="head"><h1>NEXUS AI · System Architecture</h1>
+    <div class="meta">Local Docker Compose deployment · 14 containers · 19 Nov 2026<br>React front end · FastAPI · LangGraph agents · hybrid RAG · ServiceNow · Keycloak SSO</div></div>
+  <div class="row">
+    <div style="flex:1; text-align:center"><svg class="big" style="height:166mm;width:auto;max-width:100%" viewBox="0 0 700 655" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ar"viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6672"/></marker>
+    </defs>
+    <g font-size="10.5" fill="#1f2933">
+    <!-- Row 1 -->
+    <rect x="10" y="10" width="290" height="62" rx="6" fill="#e8f0fa" stroke="#2563a8"/>
+    <text x="22" y="30" font-weight="700" font-size="12" fill="#2563a8">React single-page app</text>
+    <text x="22" y="46">Vite · localhost:5173 · on the host</text>
+    <text x="22" y="61" fill="#5b6672" font-size="9.5">Tickets · AI Query · Agents · Analytics · Integrations</text>
+
+    <rect x="335" y="10" width="170" height="62" rx="6" fill="#e3f3f3" stroke="#23797a"/>
+    <text x="347" y="30" font-weight="700" font-size="12" fill="#23797a">Keycloak 24</text>
+    <text x="347" y="46">:8080 · realm nexus</text>
+    <text x="347" y="61" fill="#5b6672" font-size="9.5">sign-in (PKCE) · roles · JWKS</text>
+
+    <rect x="535" y="10" width="155" height="62" rx="6" fill="#fff" stroke="#1f2933" stroke-dasharray="4 3"/>
+    <text x="547" y="30" font-weight="700" font-size="12">ServiceNow</text>
+    <text x="547" y="46">external · Table API</text>
+    <text x="547" y="61" fill="#5b6672" font-size="9.5">or the mock on :8090</text>
+
+    <!-- FastAPI -->
+    <rect x="10" y="110" width="200" height="270" rx="6" fill="#ecebfb" stroke="#4f46b5"/>
+    <text x="22" y="130" font-weight="700" font-size="12" fill="#4f46b5">FastAPI backend</text>
+    <text x="22" y="145" fill="#5b6672" font-size="9.5">:8000 · /api/v1 · /metrics</text>
+    <text x="22" y="166" font-weight="600">Middleware</text>
+    <text x="22" y="180" font-size="9.5">CORS · rate limit · request IDs</text>
+    <text x="22" y="193" font-size="9.5">Prometheus · OpenTelemetry</text>
+    <text x="22" y="212" font-weight="600">Routers</text>
+    <text x="22" y="226" font-size="9.5">/auth  /users  /tickets  /analytics</text>
+    <text x="22" y="239" font-size="9.5">/rag  ingest · search · query</text>
+    <text x="22" y="252" font-size="9.5">/agents  run · resume · retry · trace</text>
+    <text x="22" y="265" font-size="9.5">/integrations  test · sync · webhook</text>
+    <text x="22" y="284" font-weight="600">Auth</text>
+    <text x="22" y="297" font-size="9.5">Keycloak RS256 or local HS256 · RBAC</text>
+    <rect x="16" y="305" width="188" height="44" rx="4" fill="#fdecea" stroke="#b42318"/>
+    <text x="22" y="318" font-weight="600" fill="#b42318">Input guard + PII redaction</text>
+    <text x="22" y="331" font-size="9.5">injection check → 422 if flagged</text>
+    <text x="22" y="343" font-size="9.5">Presidio before storage / LLM</text>
+    <text x="22" y="365" font-weight="600">Audit</text>
+    <text x="22" y="376" font-size="9.5">status history · audit_logs (trace ID)</text>
+
+    <!-- Redis / Celery -->
+    <rect x="250" y="110" width="170" height="62" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="262" y="130" font-weight="700" font-size="12" fill="#2f855a">Redis</text>
+    <text x="262" y="146" font-size="9.5">redis-stack-server · :6379</text>
+    <text x="262" y="160" font-size="9.5">graph state · Celery · heartbeats</text>
+
+    <rect x="455" y="110" width="235" height="62" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
+    <text x="467" y="130" font-weight="700" font-size="12" fill="#b7791f">Celery worker + beat</text>
+    <text x="467" y="146" font-size="9.5">agent runs (retry 1·2·4 min) · RAG jobs</text>
+    <text x="467" y="160" font-size="9.5">integration sync · write-back · stall check</text>
+
+    <!-- Supervisor -->
+    <rect x="250" y="210" width="440" height="62" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+    <text x="262" y="230" font-weight="700" font-size="12" fill="#7c3aad">LangGraph supervisor</text>
+    <text x="410" y="230" fill="#5b6672" font-size="9.5">runs inside the Celery worker</text>
+    <text x="262" y="246" font-size="9.5">injection pre-check → Triage → Security? → Diagnosis → Knowledge · human review · guard</text>
+    <text x="262" y="260" font-size="9.5">Tools: rag_search · web_search (Tavily) · cve_lookup · scan_system_logs (Loki) · SLA · runbook</text>
+
+    <!-- RAG -->
+    <rect x="250" y="300" width="440" height="56" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+    <text x="262" y="319" font-weight="700" font-size="12" fill="#7c3aad">RAG pipeline</text>
+    <text x="350" y="319" fill="#5b6672" font-size="9.5">in-process library (rag/)</text>
+    <text x="262" y="334" font-size="9.5">Query: embed → dense 10 + BM25 10 → RRF → 20 → rerank → top 3 → LLM</text>
+    <text x="262" y="348" font-size="9.5">Ingest: redact → load → chunk 512/64 → embed → Qdrant + BM25</text>
+
+    <!-- Data row -->
+    <rect x="10" y="405" width="200" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="22" y="425" font-weight="700" font-size="12" fill="#2f855a">PostgreSQL 16</text>
+    <text x="22" y="441" font-size="9.5">host port 15432 · db nexusai</text>
+    <text x="22" y="455" font-size="9.5">users · tickets · history · audit</text>
+    <text x="22" y="468" font-size="9.5">integrations · Keycloak tables</text>
+
+    <rect x="250" y="405" width="100" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="260" y="425" font-weight="700" font-size="12" fill="#2f855a">BM25 index</text>
+    <text x="260" y="441" font-size="9.5">rank_bm25</text>
+    <text x="260" y="455" font-size="9.5">on disk</text>
+    <text x="260" y="468" font-size="9.5">weekly rebuild</text>
+
+    <rect x="362" y="405" width="100" height="72" rx="6" fill="#e6f4ec" stroke="#2f855a"/>
+    <text x="372" y="425" font-weight="700" font-size="12" fill="#2f855a">Qdrant 1.12</text>
+    <text x="372" y="441" font-size="9.5">:6333 · :6334</text>
+    <text x="372" y="455" font-size="9.5">nexus_knowledge</text>
+    <text x="372" y="468" font-size="9.5">tenant · type</text>
+
+    <rect x="474" y="405" width="104" height="72" rx="6" fill="#fdece2" stroke="#c05621"/>
+    <text x="484" y="425" font-weight="700" font-size="12" fill="#c05621">OpenAI API</text>
+    <text x="484" y="441" font-size="9.5">gpt-4o(-mini)</text>
+    <text x="484" y="455" font-size="9.5">embedding-3-small</text>
+    <text x="484" y="468" font-size="9.5">60 s timeout</text>
+
+    <rect x="590" y="405" width="100" height="72" rx="6" fill="#fdece2" stroke="#c05621" stroke-dasharray="4 3"/>
+    <text x="600" y="425" font-weight="700" font-size="12" fill="#c05621">Ollama</text>
+    <text x="600" y="441" font-size="9.5">:11434</text>
+    <text x="600" y="455" font-size="9.5">nomic-embed-text</text>
+    <text x="600" y="468" font-size="9.5">nexus-it (unused)</text>
+
+    <!-- Observability band -->
+    <rect x="10" y="515" width="680" height="96" rx="6" fill="#eef0f2" stroke="#5b6672"/>
+    <text x="22" y="533" font-weight="700" font-size="12" fill="#5b6672">Observability</text>
+    <text x="118" y="533" fill="#5b6672" font-size="9.5">collects from the API, the worker and every container</text>
+    <g font-size="9.5">
+      <rect x="20" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="28" y="558" font-weight="700">Prometheus</text><text x="28" y="572">:9090 · scrapes /metrics</text><text x="28" y="585">and worker :9101</text>
+      <rect x="154" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="162" y="558" font-weight="700">Grafana</text><text x="162" y="572">:3000 · NEXUS AI</text><text x="162" y="585">dashboard + logs</text>
+      <rect x="288" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="296" y="558" font-weight="700">Jaeger</text><text x="296" y="572">:16686 · API + DB</text><text x="296" y="585">spans (Zipkin)</text>
+      <rect x="422" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672"/>
+      <text x="430" y="558" font-weight="700">Loki + Alloy</text><text x="430" y="572">container logs, 7 d</text><text x="430" y="585">Alloy reads Docker</text>
+      <rect x="556" y="542" width="124" height="60" rx="4" fill="#fff" stroke="#5b6672" stroke-dasharray="4 3"/>
+      <text x="564" y="558" font-weight="700">LangSmith</text><text x="564" y="572">cloud · LLM traces</text><text x="564" y="585">linked per ticket</text>
+    </g>
+    </g>
+
+    <!-- arrows -->
+    <g stroke="#5b6672" stroke-width="1.2" fill="none" marker-end="url(#ar)">
+      <path d="M110,72 V108"/>
+      <path d="M300,41 H333" stroke-dasharray="4 3"/>
+      <path d="M612,108 V74" marker-start="url(#ar)"/>
+      <path d="M210,141 H248"/>
+      <path d="M422,141 H453" marker-start="url(#ar)"/>
+      <path d="M572,172 V208"/>
+      <path d="M335,174 V208" marker-start="url(#ar)"/>
+      <path d="M210,241 H248"/>
+      <path d="M210,328 H248"/>
+      <path d="M470,272 V298"/>
+      <path d="M110,380 V403" marker-start="url(#ar)"/>
+      <path d="M300,356 V403" marker-start="url(#ar)"/>
+      <path d="M412,356 V403" marker-start="url(#ar)"/>
+      <path d="M526,356 V403"/>
+      <path d="M640,356 V403" stroke-dasharray="4 3"/>
+      <path d="M210,365 H230 V513" stroke-dasharray="4 3"/>
+      <path d="M690,150 H697 V513" stroke-dasharray="4 3"/>
+    </g>
+    <g font-size="8.8" fill="#5b6672">
+      <text x="116" y="94">REST · Bearer token</text>
+      <text x="304" y="35">SSO</text>
+      <text x="617" y="94">import · work notes</text>
+      <text x="214" y="135">enqueue</text>
+      <text x="424" y="135">consume</text>
+      <text x="577" y="194">run_supervisor()</text>
+      <text x="340" y="194">checkpoints</text>
+      <text x="213" y="235">resume</text>
+      <text x="213" y="322">/rag</text>
+      <text x="476" y="290">rag_search · ingest</text>
+      <text x="116" y="396">asyncpg</text>
+      <text x="306" y="396">sparse</text>
+      <text x="418" y="396">dense</text>
+      <text x="532" y="396">chat · embed</text>
+      <text x="646" y="396">alt.</text>
+      <text x="236" y="506">metrics · traces · logs</text>
+    </g>
+    <g font-size="8.8" fill="#5b6672">
+      <path d="M10,635 H40" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)"/>
+      <text x="46" y="638">call</text>
+      <path d="M80,635 H110" stroke="#5b6672" stroke-width="1.2" marker-end="url(#ar)" marker-start="url(#ar)"/>
+      <text x="116" y="638">read and write</text>
+      <path d="M190,635 H220" stroke="#5b6672" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+      <text x="226" y="638">optional / alternative / external</text>
+    </g>
+  </svg>
+    <div class="legend"><span class="l-client">Client</span><span class="l-api">API</span><span class="l-async">Async jobs</span><span class="l-ai">AI layer</span><span class="l-data">Data stores</span><span class="l-model">Models</span><span class="l-ident">Identity</span><span class="l-ops">Observability</span></div></div>
+    <div class="side">
+      <h3>What talks to what</h3>
+      <ul>
+        <li>The browser signs in at <b>Keycloak</b> (PKCE) and calls the <b>API</b> with that token.</li>
+        <li>The API answers at once; agent work goes to <b>Celery</b> through Redis.</li>
+        <li>The <b>LangGraph supervisor</b> runs Triage → Security? → Diagnosis → Knowledge inside the worker, checkpointed in Redis.</li>
+        <li>Agents search the knowledge base through the in-process <b>RAG</b> library (Qdrant + BM25 + reranker) and call <b>OpenAI</b>.</li>
+        <li>The worker imports incidents from <b>ServiceNow</b> and posts results back as work notes.</li>
+      </ul>
+      <h3>Safeguards</h3>
+      <ul>
+        <li>Injection guard on every text input; Presidio removes personal data before storage and LLM calls.</li>
+        <li>Lost connection: retries after 1, 2, 4 min; dead runs handed to a person.</li>
+        <li>One run per ticket; one sync per connection; no duplicate imports or notes.</li>
+      </ul>
+      <h3>Where to look</h3>
+      <ul>
+        <li>App :5173 · API :8000/docs</li>
+        <li>Grafana :3000 · Prometheus :9090</li>
+        <li>Jaeger :16686 · Alloy :12345</li>
+        <li>Keycloak :8080 · mock ServiceNow :8090</li>
+        <li>LangSmith: project <code>nexus-ai</code></li>
+      </ul>
+      <p class="meta">Detail: <code>nexus_ai_architecture_detailed.pdf</code></p>
+    </div>
+  </div>
+</section>
+<section class="page">
+  <div class="head"><h1>NEXUS AI · Agents, RAG and Integrations</h1>
+    <div class="meta">How a ticket moves through the agents, how the knowledge base is queried and fed,<br>and how ServiceNow incidents come in and go back</div></div>
+  <h3>A. Ticket flow through the LangGraph supervisor</h3>
+  <div style="text-align:center"><svg class="sup" style="height:72mm;width:auto;max-width:100%" viewBox="0 0 700 330"xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6672"/></marker>
+    </defs>
+    <circle cx="28" cy="60" r="18" fill="#eef0f2" stroke="#5b6672"/><text x="28" y="63" font-size="8" font-weight="700" text-anchor="middle">START</text>
+    <circle cx="668" cy="60" r="18" fill="#eef0f2" stroke="#5b6672"/><text x="668" y="63" font-size="8" font-weight="700" text-anchor="middle">END</text>
+    <g font-size="9.5">
+      <rect x="70" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="80" y="53" font-weight="700" font-size="11" fill="#7c3aad">Triage</text>
+      <text x="80" y="68">classify · priority · keywords</text>
+      <text x="80" y="80" fill="#5b6672" font-size="8.5">tool: check_sla_status</text>
+
+      <rect x="300" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="310" y="53" font-weight="700" font-size="11" fill="#7c3aad">Diagnosis</text>
+      <text x="310" y="68">root cause · fix steps</text>
+      <text x="310" y="80" fill="#5b6672" font-size="8.5">RAG · Tavily if no match · SLA</text>
+
+      <rect x="490" y="35" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="500" y="53" font-weight="700" font-size="11" fill="#7c3aad">Knowledge</text>
+      <text x="500" y="68">runbook → RAG · save ticket</text>
+      <text x="500" y="80" fill="#5b6672" font-size="8.5">generate_runbook · update_ticket</text>
+
+      <rect x="160" y="120" width="150" height="50" rx="6" fill="#f3eafa" stroke="#7c3aad"/>
+      <text x="170" y="138" font-weight="700" font-size="11" fill="#7c3aad">Security</text>
+      <text x="170" y="153">threat level · CVEs · PII</text>
+      <text x="170" y="165" fill="#5b6672" font-size="8.5">cve_lookup · rag_search · Loki logs</text>
+
+      <rect x="170" y="218" width="210" height="58" rx="6" fill="#fdf3e1" stroke="#b7791f"/>
+      <text x="180" y="236" font-weight="700" font-size="11" fill="#b7791f">Human review</text>
+      <text x="180" y="251">interrupt() · review panel on the ticket</text>
+      <text x="180" y="265" fill="#5b6672" font-size="8.5">agent or admin adds notes, then decides</text>
+
+      <rect x="490" y="130" width="180" height="62" rx="6" fill="#eef0f2" stroke="#5b6672"/>
+      <text x="500" y="148" font-weight="700" font-size="11" fill="#5b6672">Guard</text>
+      <text x="500" y="163">reached from any node when</text>
+      <text x="500" y="176">iteration ≥ 8 → END with error</text>
+    </g>
+    <g stroke="#5b6672" stroke-width="1.2" fill="none" marker-end="url(#ar3)">
+      <path d="M46,60 H68"/>
+      <path d="M220,55 H298"/>
+      <path d="M450,55 H488"/>
+      <path d="M640,60 H648"/>
+      <path d="M190,85 V118"/>
+      <path d="M310,138 H330 V87"/>
+      <path d="M235,170 V216"/>
+      <path d="M100,85 V247 H168"/>
+      <path d="M420,85 V247 H382"/>
+      <path d="M205,276 V300 H676 V80"/>
+      <path d="M345,276 V300" marker-end="none"/>
+    </g>
+    <g font-size="8.5" fill="#5b6672">
+      <text x="232" y="49">default route</text>
+      <text x="196" y="103">security keywords</text>
+      <text x="336" y="128">then diagnose</text>
+      <text x="241" y="196">critical · escalate</text>
+      <text x="241" y="207">· containment</text>
+      <text x="106" y="196">HITL triggers*</text>
+      <text x="426" y="215">escalation</text>
+      <text x="426" y="226">needed</text>
+      <text x="565" y="100" text-anchor="middle">Knowledge → END sets status resolved</text>
+    </g>
+    <g font-size="8.5">
+      <text x="211" y="292" fill="#2f855a" font-weight="700">Approve</text>
+      <text x="351" y="292" fill="#b7791f" font-weight="700">Reject</text>
+      <text x="290" y="314"><tspan fill="#2f855a" font-weight="700">Approve and resolve</tspan><tspan fill="#5b6672"> → END · resolved, with the review notes as the resolution</tspan></text>
+      <text x="290" y="326"><tspan fill="#b7791f" font-weight="700">Reject</tspan><tspan fill="#5b6672"> → END · stays in progress, assigned to a human</tspan></text>
+    </g>
+  </svg></div>
+  <div class="cap">Triggered by POST /agents/run/{id}, by an imported ticket, or by Retry agents. *Triage escalates on data-loss risk, an outage over 1 h, a security breach, or confidence below 0.4. The Security agent also reads the last hour of NEXUS logs from Loki.</div>
+  <h3>B. RAG query path</h3>
+  <div class="flow">
+    <div class="step c-client"><b>Query</b>/rag/query, /rag/query/stream or the rag_search tool; personal data redacted</div><div class="arrow">→</div>
+    <div class="step c-model"><b>Embed</b>same model as ingestion</div><div class="arrow">→</div>
+    <div class="step c-data"><b>Retrieve</b>Qdrant top 10 (tenant, type, category filters) + BM25 top 10</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>RRF fuse</b>score = Σ 1/(60 + rank); keep 20</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Rerank</b>cross-encoder scores each (query, chunk) pair; keep 3</div><div class="arrow">→</div>
+    <div class="step c-model"><b>Generate</b>context-only prompt with numbered, cited sources</div>
+  </div>
+  <h3>C. Knowledge-base ingestion path</h3>
+  <div class="flow">
+    <div class="step c-ops"><b>Sources</b>sample runbooks, raw text, PDF / Markdown uploads, resolved tickets, agent runbooks</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Load + redact</b>documents + metadata; personal data removed (Presidio)</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Chunk</b>512 tokens, 64 overlap; header-aware; drops chunks under 50</div><div class="arrow">→</div>
+    <div class="step c-model"><b>Embed</b>OpenAI 1536-d or Ollama 768-d</div><div class="arrow">→</div>
+    <div class="step c-data"><b>Index</b>Qdrant upsert with deterministic chunk IDs; BM25 add</div>
+  </div>
+  <h3>D. ServiceNow (or any connected system)</h3>
+  <div class="flow">
+    <div class="step c-client"><b>ServiceNow</b>incident created, state New</div><div class="arrow">→</div>
+    <div class="step c-async"><b>Sync</b>Beat checks every minute; each connection syncs on its own interval, or at once by webhook</div><div class="arrow">→</div>
+    <div class="step c-api"><b>Save</b>one NEXUS ticket per incident, personal data redacted, unchanged ones skipped</div><div class="arrow">→</div>
+    <div class="step c-ai"><b>Agents</b>run once, only for tickets that arrive open</div><div class="arrow">→</div>
+    <div class="step c-async"><b>Write back</b>diagnosis and steps posted as an internal work note, never twice</div>
+  </div>
+</section>
+</body>
+</html>

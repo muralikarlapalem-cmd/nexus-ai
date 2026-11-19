@@ -77,7 +77,7 @@ Wait for the line `Local: http://localhost:5173/`. **Leave this terminal open**:
 
 ### 4. Open the app
 
-Go to **http://localhost:5173** and log in with your username and password.
+Go to **http://localhost:5173** and log in with your username and password. Keycloak users click **Sign in with Keycloak** instead (the Keycloak page's address must contain `/realms/nexus/`; see [SSO.md](SSO.md)).
 
 ---
 
@@ -119,6 +119,9 @@ docker compose stop
 | Vite prints `Port 5173 is in use, trying another one...` | An old dev server is still running | Use the URL Vite prints (e.g. `:5174`), or close the old terminal and start again |
 | Page loads but login fails or shows a network error | Backend not ready | `docker compose ps`; if `nexus-api` isn't healthy: `docker compose logs api --tail 50` |
 | Login says invalid credentials | Wrong user/password, or the account was never created | Register again; see the table above for admin |
+| Keycloak says "Invalid username or password" with the right password | Signing in on the Keycloak admin console (`/admin`), where only `admin` exists | Start from the app → **Sign in with Keycloak**; check with `docker compose exec api python -m app.cli sso-check <username> --test-password` |
+| No **Sign in with Keycloak** button | The NEXUS realm isn't set up | `docker compose exec api python -m app.cli sso-setup` |
+| Grafana's Logs panels show red triangles or no data | Grafana loads data sources only at start-up | `docker compose restart grafana` |
 | `/health/ready` reports the database or Redis as down | Those containers are still starting | Wait 30 s and retry; else `docker compose restart postgres redis` |
 | First start after a reboot is slow | Ollama re-checks its embedding model on start | Wait a minute; `docker compose logs ollama` |
 | Agent runs never finish | Celery worker stopped or unhealthy | `docker compose logs celery-worker --tail 50`, then `docker compose restart celery-worker` |
