@@ -45,9 +45,12 @@ LLM calls use **OpenAI** via `langchain_openai.ChatOpenAI` (default model `gpt-4
 | 6 | Fine-Tuning Pipeline (QLoRA) | 🟡 Scaffolded: dataset export, notebook, Ollama deploy script |
 | 7 | Integrations: ServiceNow + generic REST connectors | ✅ Implemented, with a mock ServiceNow for local testing. See [INTEGRATIONS.md](INTEGRATIONS.md) |
 
-**Not built yet:** the Analytics agent / `analytics` router (commented out in `backend/app/main.py`),
-and the `index_ticket_for_rag` / `run_eval_suite` Celery tasks (they only log). Ticket indexing works
-through `app/workers/rag_tasks.py` instead.
+**Analytics:** the **Analytics** page (`frontend/src/pages/AnalyticsPage.jsx`) shows service desk
+metrics from `GET /api/v1/analytics/summary` (`backend/app/api/v1/analytics.py`).
+
+**Not built yet:** an AI Analytics *agent* in the LangGraph pipeline (analytics is a metrics page,
+not an agent), and the `index_ticket_for_rag` / `run_eval_suite` Celery tasks (they only log).
+Ticket indexing works through `app/workers/rag_tasks.py` instead.
 
 ---
 
